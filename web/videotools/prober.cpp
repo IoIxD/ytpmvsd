@@ -25,668 +25,28 @@
 
 #include <mutex>
 
-extern "C" {
+#include "prober.hpp"
 
-#include "config.h"
-#include "libavutil/pixfmt.h"
-#include "libavutil/rational.h"
-#include <libavutil/ffversion.h>
-
-#include "avtextformat.hpp"
-#include "cmdutils.hpp"
-#include <libavcodec/avcodec.h>
-#include <libavcodec/version.h>
-#include <libavdevice/avdevice.h>
-#include <libavdevice/version.h>
-#include <libavfilter/version.h>
-#include <libavformat/avformat.h>
-#include <libavformat/version.h>
-#include <libavutil/ambient_viewing_environment.h>
-#include <libavutil/avassert.h>
-#include <libavutil/avstring.h>
-#include <libavutil/bprint.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/dict.h>
-#include <libavutil/display.h>
-#include <libavutil/dovi_meta.h>
-#include <libavutil/film_grain_params.h>
-#include <libavutil/hdr_dynamic_metadata.h>
-#include <libavutil/hdr_dynamic_vivid_metadata.h>
-#include <libavutil/iamf.h>
-#include <libavutil/intreadwrite.h>
-#include <libavutil/mastering_display_metadata.h>
-#include <libavutil/mem.h>
-#include <libavutil/opt.h>
-#include <libavutil/parseutils.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/spherical.h>
-#include <libavutil/stereo3d.h>
-#include <libavutil/timecode.h>
-#include <libavutil/timestamp.h>
-#include <libswresample/swresample.h>
-#include <libswresample/version.h>
-#include <libswscale/swscale.h>
-#include <libswscale/version.h>
-#include <math.h>
-#include <string.h>
-}
-
-// attached as opaque_ref to packets/frames
-typedef struct FrameData {
-  int64_t pkt_pos;
-  int pkt_size;
-} FrameData;
-
-typedef struct InputStream {
-  AVStream *st;
-
-  AVCodecContext *dec_ctx;
-} InputStream;
-
-typedef struct InputFile {
-  AVFormatContext *fmt_ctx;
-
-  InputStream *streams;
-  int nb_streams;
-} InputFile;
-
-const char program_name[] = "ffprobe";
-const int program_birth_year = 2007;
-
-#define SHOW_OPTIONAL_FIELDS_AUTO -1
-#define SHOW_OPTIONAL_FIELDS_NEVER 0
-#define SHOW_OPTIONAL_FIELDS_ALWAYS 1
-
-static int show_optional_fields = SHOW_OPTIONAL_FIELDS_AUTO;
-
-static char *output_format;
-static char *stream_specifier;
-static char *show_data_hash;
-
-typedef struct ReadInterval {
-  int id;             ///< identifier
-  int64_t start, end; ///< start, end in second/AV_TIME_BASE units
-  int has_start, has_end;
-  int start_is_offset, end_is_offset;
-  int duration_frames;
-} ReadInterval;
-
-static ReadInterval *read_intervals;
-static int read_intervals_nb = 0;
-
-static int find_stream_info = 1;
-
-/* section structure definition */
-
-typedef enum {
-  SECTION_ID_CHAPTER,
-  SECTION_ID_CHAPTER_TAGS,
-  SECTION_ID_CHAPTERS,
-  SECTION_ID_ERROR,
-  SECTION_ID_FORMAT,
-  SECTION_ID_FORMAT_TAGS,
-  SECTION_ID_FRAME,
-  SECTION_ID_FRAMES,
-  SECTION_ID_FRAME_TAGS,
-  SECTION_ID_FRAME_SIDE_DATA_LIST,
-  SECTION_ID_FRAME_SIDE_DATA,
-  SECTION_ID_FRAME_SIDE_DATA_TIMECODE_LIST,
-  SECTION_ID_FRAME_SIDE_DATA_TIMECODE,
-  SECTION_ID_FRAME_SIDE_DATA_COMPONENT_LIST,
-  SECTION_ID_FRAME_SIDE_DATA_COMPONENT,
-  SECTION_ID_FRAME_SIDE_DATA_PIECE_LIST,
-  SECTION_ID_FRAME_SIDE_DATA_PIECE,
-  SECTION_ID_FRAME_LOG,
-  SECTION_ID_FRAME_LOGS,
-  SECTION_ID_LIBRARY_VERSION,
-  SECTION_ID_LIBRARY_VERSIONS,
-  SECTION_ID_PACKET,
-  SECTION_ID_PACKET_TAGS,
-  SECTION_ID_PACKETS,
-  SECTION_ID_PACKETS_AND_FRAMES,
-  SECTION_ID_PACKET_SIDE_DATA_LIST,
-  SECTION_ID_PACKET_SIDE_DATA,
-  SECTION_ID_PIXEL_FORMAT,
-  SECTION_ID_PIXEL_FORMAT_FLAGS,
-  SECTION_ID_PIXEL_FORMAT_COMPONENT,
-  SECTION_ID_PIXEL_FORMAT_COMPONENTS,
-  SECTION_ID_PIXEL_FORMATS,
-  SECTION_ID_PROGRAM_STREAM_DISPOSITION,
-  SECTION_ID_PROGRAM_STREAM_TAGS,
-  SECTION_ID_PROGRAM,
-  SECTION_ID_PROGRAM_STREAMS,
-  SECTION_ID_PROGRAM_STREAM,
-  SECTION_ID_PROGRAM_TAGS,
-  SECTION_ID_PROGRAM_VERSION,
-  SECTION_ID_PROGRAMS,
-  SECTION_ID_STREAM_GROUP_STREAM_DISPOSITION,
-  SECTION_ID_STREAM_GROUP_STREAM_TAGS,
-  SECTION_ID_STREAM_GROUP,
-  SECTION_ID_STREAM_GROUP_COMPONENTS,
-  SECTION_ID_STREAM_GROUP_COMPONENT,
-  SECTION_ID_STREAM_GROUP_SUBCOMPONENTS,
-  SECTION_ID_STREAM_GROUP_SUBCOMPONENT,
-  SECTION_ID_STREAM_GROUP_PIECES,
-  SECTION_ID_STREAM_GROUP_PIECE,
-  SECTION_ID_STREAM_GROUP_SUBPIECES,
-  SECTION_ID_STREAM_GROUP_SUBPIECE,
-  SECTION_ID_STREAM_GROUP_BLOCKS,
-  SECTION_ID_STREAM_GROUP_BLOCK,
-  SECTION_ID_STREAM_GROUP_STREAMS,
-  SECTION_ID_STREAM_GROUP_STREAM,
-  SECTION_ID_STREAM_GROUP_DISPOSITION,
-  SECTION_ID_STREAM_GROUP_TAGS,
-  SECTION_ID_STREAM_GROUPS,
-  SECTION_ID_ROOT,
-  SECTION_ID_STREAM,
-  SECTION_ID_STREAM_DISPOSITION,
-  SECTION_ID_STREAMS,
-  SECTION_ID_STREAM_TAGS,
-  SECTION_ID_STREAM_SIDE_DATA_LIST,
-  SECTION_ID_STREAM_SIDE_DATA,
-  SECTION_ID_SUBTITLE,
-} SectionID;
-
-static const char *get_packet_side_data_type(const void *data) {
+const char *Prober::get_packet_side_data_type(const void *data) {
   const AVPacketSideData *sd = (const AVPacketSideData *)data;
   return (const char *)av_x_if_null(av_packet_side_data_name(sd->type),
                                     "unknown");
 }
 
-static const char *get_frame_side_data_type(const void *data) {
+const char *Prober::get_frame_side_data_type(const void *data) {
   const AVFrameSideData *sd = (const AVFrameSideData *)data;
   return (const char *)av_x_if_null(av_frame_side_data_name(sd->type),
                                     "unknown");
 }
 
-static const char *get_raw_string_type(const void *data) {
+const char *Prober::get_raw_string_type(const void *data) {
   return (const char *)data;
 }
 
-static const char *get_stream_group_type(const void *data) {
+const char *Prober::get_stream_group_type(const void *data) {
   const AVStreamGroup *stg = (const AVStreamGroup *)data;
   return (const char *)av_x_if_null(avformat_stream_group_name(stg->type),
                                     "unknown");
-}
-
-static struct AVTextFormatSection sections[] = {
-    [SECTION_ID_CHAPTERS] = {SECTION_ID_CHAPTERS,
-                             "chapters",
-                             AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                             {SECTION_ID_CHAPTER, -1}},
-    [SECTION_ID_CHAPTER] = {SECTION_ID_CHAPTER,
-                            "chapter",
-                            0,
-                            {SECTION_ID_CHAPTER_TAGS, -1}},
-    [SECTION_ID_CHAPTER_TAGS] = {SECTION_ID_CHAPTER_TAGS,
-                                 "tags",
-                                 AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                                 {-1},
-                                 .element_name = "tag",
-                                 .unique_name = "chapter_tags"},
-    [SECTION_ID_ERROR] = {SECTION_ID_ERROR, "error", 0, {-1}},
-    [SECTION_ID_FORMAT] = {SECTION_ID_FORMAT,
-                           "format",
-                           0,
-                           {SECTION_ID_FORMAT_TAGS, -1}},
-    [SECTION_ID_FORMAT_TAGS] = {SECTION_ID_FORMAT_TAGS,
-                                "tags",
-                                AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                                {-1},
-                                .element_name = "tag",
-                                .unique_name = "format_tags"},
-    [SECTION_ID_FRAMES] = {SECTION_ID_FRAMES,
-                           "frames",
-                           AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                           {SECTION_ID_FRAME, SECTION_ID_SUBTITLE, -1}},
-    [SECTION_ID_FRAME] = {SECTION_ID_FRAME,
-                          "frame",
-                          0,
-                          {SECTION_ID_FRAME_TAGS,
-                           SECTION_ID_FRAME_SIDE_DATA_LIST,
-                           SECTION_ID_FRAME_LOGS, -1}},
-    [SECTION_ID_FRAME_TAGS] = {SECTION_ID_FRAME_TAGS,
-                               "tags",
-                               AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                               {-1},
-                               .element_name = "tag",
-                               .unique_name = "frame_tags"},
-    [SECTION_ID_FRAME_SIDE_DATA_LIST] = {SECTION_ID_FRAME_SIDE_DATA_LIST,
-                                         "side_data_list",
-                                         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                         {SECTION_ID_FRAME_SIDE_DATA, -1},
-                                         .element_name = "side_data",
-                                         .unique_name = "frame_side_data_list"},
-    [SECTION_ID_FRAME_SIDE_DATA] =
-        {SECTION_ID_FRAME_SIDE_DATA,
-         "side_data",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_FRAME_SIDE_DATA_TIMECODE_LIST,
-          SECTION_ID_FRAME_SIDE_DATA_COMPONENT_LIST, -1},
-         .unique_name = "frame_side_data",
-         .element_name = "side_datum",
-         .get_type = get_frame_side_data_type},
-    [SECTION_ID_FRAME_SIDE_DATA_TIMECODE_LIST] =
-        {SECTION_ID_FRAME_SIDE_DATA_TIMECODE_LIST,
-         "timecodes",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-         {SECTION_ID_FRAME_SIDE_DATA_TIMECODE, -1}},
-    [SECTION_ID_FRAME_SIDE_DATA_TIMECODE] =
-        {SECTION_ID_FRAME_SIDE_DATA_TIMECODE, "timecode", 0, {-1}},
-    [SECTION_ID_FRAME_SIDE_DATA_COMPONENT_LIST] =
-        {SECTION_ID_FRAME_SIDE_DATA_COMPONENT_LIST,
-         "components",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-         {SECTION_ID_FRAME_SIDE_DATA_COMPONENT, -1},
-         .element_name = "component",
-         .unique_name = "frame_side_data_components"},
-    [SECTION_ID_FRAME_SIDE_DATA_COMPONENT] =
-        {SECTION_ID_FRAME_SIDE_DATA_COMPONENT,
-         "component",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_FRAME_SIDE_DATA_PIECE_LIST, -1},
-         .unique_name = "frame_side_data_component",
-         .element_name = "component_entry",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_FRAME_SIDE_DATA_PIECE_LIST] =
-        {SECTION_ID_FRAME_SIDE_DATA_PIECE_LIST,
-         "pieces",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-         {SECTION_ID_FRAME_SIDE_DATA_PIECE, -1},
-         .element_name = "piece",
-         .unique_name = "frame_side_data_pieces"},
-    [SECTION_ID_FRAME_SIDE_DATA_PIECE] =
-        {SECTION_ID_FRAME_SIDE_DATA_PIECE,
-         "piece",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {-1},
-         .element_name = "piece_entry",
-         .unique_name = "frame_side_data_piece",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_FRAME_LOGS] = {SECTION_ID_FRAME_LOGS,
-                               "logs",
-                               AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                               {SECTION_ID_FRAME_LOG, -1}},
-    [SECTION_ID_FRAME_LOG] =
-        {
-            SECTION_ID_FRAME_LOG,
-            "log",
-            0,
-            {-1},
-        },
-    [SECTION_ID_LIBRARY_VERSIONS] = {SECTION_ID_LIBRARY_VERSIONS,
-                                     "library_versions",
-                                     AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                     {SECTION_ID_LIBRARY_VERSION, -1}},
-    [SECTION_ID_LIBRARY_VERSION] = {SECTION_ID_LIBRARY_VERSION,
-                                    "library_version",
-                                    0,
-                                    {-1}},
-    [SECTION_ID_PACKETS] = {SECTION_ID_PACKETS,
-                            "packets",
-                            AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                            {SECTION_ID_PACKET, -1}},
-    [SECTION_ID_PACKETS_AND_FRAMES] =
-        {SECTION_ID_PACKETS_AND_FRAMES,
-         "packets_and_frames",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY |
-             AV_TEXTFORMAT_SECTION_FLAG_NUMBERING_BY_TYPE,
-         {SECTION_ID_PACKET, -1}},
-    [SECTION_ID_PACKET] = {SECTION_ID_PACKET,
-                           "packet",
-                           0,
-                           {SECTION_ID_PACKET_TAGS,
-                            SECTION_ID_PACKET_SIDE_DATA_LIST, -1}},
-    [SECTION_ID_PACKET_TAGS] = {SECTION_ID_PACKET_TAGS,
-                                "tags",
-                                AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                                {-1},
-                                .element_name = "tag",
-                                .unique_name = "packet_tags"},
-    [SECTION_ID_PACKET_SIDE_DATA_LIST] = {SECTION_ID_PACKET_SIDE_DATA_LIST,
-                                          "side_data_list",
-                                          AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                          {SECTION_ID_PACKET_SIDE_DATA, -1},
-                                          .element_name = "side_data",
-                                          .unique_name =
-                                              "packet_side_data_list"},
-    [SECTION_ID_PACKET_SIDE_DATA] =
-        {SECTION_ID_PACKET_SIDE_DATA,
-         "side_data",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {-1},
-         .unique_name = "packet_side_data",
-         .element_name = "side_datum",
-         .get_type = get_packet_side_data_type},
-    [SECTION_ID_PIXEL_FORMATS] = {SECTION_ID_PIXEL_FORMATS,
-                                  "pixel_formats",
-                                  AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                  {SECTION_ID_PIXEL_FORMAT, -1}},
-    [SECTION_ID_PIXEL_FORMAT] = {SECTION_ID_PIXEL_FORMAT,
-                                 "pixel_format",
-                                 0,
-                                 {SECTION_ID_PIXEL_FORMAT_FLAGS,
-                                  SECTION_ID_PIXEL_FORMAT_COMPONENTS, -1}},
-    [SECTION_ID_PIXEL_FORMAT_FLAGS] = {SECTION_ID_PIXEL_FORMAT_FLAGS,
-                                       "flags",
-                                       0,
-                                       {-1},
-                                       .unique_name = "pixel_format_flags"},
-    [SECTION_ID_PIXEL_FORMAT_COMPONENTS] = {SECTION_ID_PIXEL_FORMAT_COMPONENTS,
-                                            "components",
-                                            AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                            {SECTION_ID_PIXEL_FORMAT_COMPONENT,
-                                             -1},
-                                            .unique_name =
-                                                "pixel_format_components"},
-    [SECTION_ID_PIXEL_FORMAT_COMPONENT] = {SECTION_ID_PIXEL_FORMAT_COMPONENT,
-                                           "component",
-                                           0,
-                                           {-1}},
-    [SECTION_ID_PROGRAM_STREAM_DISPOSITION] =
-        {SECTION_ID_PROGRAM_STREAM_DISPOSITION,
-         "disposition",
-         0,
-         {-1},
-         .unique_name = "program_stream_disposition"},
-    [SECTION_ID_PROGRAM_STREAM_TAGS] =
-        {SECTION_ID_PROGRAM_STREAM_TAGS,
-         "tags",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-         {-1},
-         .element_name = "tag",
-         .unique_name = "program_stream_tags"},
-    [SECTION_ID_PROGRAM] = {SECTION_ID_PROGRAM,
-                            "program",
-                            0,
-                            {SECTION_ID_PROGRAM_TAGS,
-                             SECTION_ID_PROGRAM_STREAMS, -1}},
-    [SECTION_ID_PROGRAM_STREAMS] = {SECTION_ID_PROGRAM_STREAMS,
-                                    "streams",
-                                    AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                    {SECTION_ID_PROGRAM_STREAM, -1},
-                                    .unique_name = "program_streams"},
-    [SECTION_ID_PROGRAM_STREAM] = {SECTION_ID_PROGRAM_STREAM,
-                                   "stream",
-                                   0,
-                                   {SECTION_ID_PROGRAM_STREAM_DISPOSITION,
-                                    SECTION_ID_PROGRAM_STREAM_TAGS, -1},
-                                   .unique_name = "program_stream"},
-    [SECTION_ID_PROGRAM_TAGS] = {SECTION_ID_PROGRAM_TAGS,
-                                 "tags",
-                                 AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                                 {-1},
-                                 .element_name = "tag",
-                                 .unique_name = "program_tags"},
-    [SECTION_ID_PROGRAM_VERSION] = {SECTION_ID_PROGRAM_VERSION,
-                                    "program_version",
-                                    0,
-                                    {-1}},
-    [SECTION_ID_PROGRAMS] = {SECTION_ID_PROGRAMS,
-                             "programs",
-                             AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                             {SECTION_ID_PROGRAM, -1}},
-    [SECTION_ID_STREAM_GROUP_STREAM_DISPOSITION] =
-        {SECTION_ID_STREAM_GROUP_STREAM_DISPOSITION,
-         "disposition",
-         0,
-         {-1},
-         .unique_name = "stream_group_stream_disposition"},
-    [SECTION_ID_STREAM_GROUP_STREAM_TAGS] =
-        {SECTION_ID_STREAM_GROUP_STREAM_TAGS,
-         "tags",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-         {-1},
-         .element_name = "tag",
-         .unique_name = "stream_group_stream_tags"},
-    [SECTION_ID_STREAM_GROUP] = {SECTION_ID_STREAM_GROUP,
-                                 "stream_group",
-                                 0,
-                                 {SECTION_ID_STREAM_GROUP_TAGS,
-                                  SECTION_ID_STREAM_GROUP_DISPOSITION,
-                                  SECTION_ID_STREAM_GROUP_COMPONENTS,
-                                  SECTION_ID_STREAM_GROUP_STREAMS, -1}},
-    [SECTION_ID_STREAM_GROUP_COMPONENTS] = {SECTION_ID_STREAM_GROUP_COMPONENTS,
-                                            "components",
-                                            AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                            {SECTION_ID_STREAM_GROUP_COMPONENT,
-                                             -1},
-                                            .element_name = "component",
-                                            .unique_name =
-                                                "stream_group_components"},
-    [SECTION_ID_STREAM_GROUP_COMPONENT] =
-        {SECTION_ID_STREAM_GROUP_COMPONENT,
-         "component",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_STREAM_GROUP_SUBCOMPONENTS, -1},
-         .unique_name = "stream_group_component",
-         .element_name = "component_entry",
-         .get_type = get_stream_group_type},
-    [SECTION_ID_STREAM_GROUP_SUBCOMPONENTS] =
-        {SECTION_ID_STREAM_GROUP_SUBCOMPONENTS,
-         "subcomponents",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-         {SECTION_ID_STREAM_GROUP_SUBCOMPONENT, -1},
-         .element_name = "component"},
-    [SECTION_ID_STREAM_GROUP_SUBCOMPONENT] =
-        {SECTION_ID_STREAM_GROUP_SUBCOMPONENT,
-         "subcomponent",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_STREAM_GROUP_PIECES, -1},
-         .element_name = "subcomponent_entry",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_STREAM_GROUP_PIECES] = {SECTION_ID_STREAM_GROUP_PIECES,
-                                        "pieces",
-                                        AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                        {SECTION_ID_STREAM_GROUP_PIECE, -1},
-                                        .element_name = "piece",
-                                        .unique_name = "stream_group_pieces"},
-    [SECTION_ID_STREAM_GROUP_PIECE] =
-        {SECTION_ID_STREAM_GROUP_PIECE,
-         "piece",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_STREAM_GROUP_SUBPIECES, -1},
-         .unique_name = "stream_group_piece",
-         .element_name = "piece_entry",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_STREAM_GROUP_SUBPIECES] = {SECTION_ID_STREAM_GROUP_SUBPIECES,
-                                           "subpieces",
-                                           AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                           {SECTION_ID_STREAM_GROUP_SUBPIECE,
-                                            -1},
-                                           .element_name = "subpiece"},
-    [SECTION_ID_STREAM_GROUP_SUBPIECE] =
-        {SECTION_ID_STREAM_GROUP_SUBPIECE,
-         "subpiece",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {SECTION_ID_STREAM_GROUP_BLOCKS, -1},
-         .element_name = "subpiece_entry",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_STREAM_GROUP_BLOCKS] = {SECTION_ID_STREAM_GROUP_BLOCKS,
-                                        "blocks",
-                                        AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                        {SECTION_ID_STREAM_GROUP_BLOCK, -1},
-                                        .element_name = "block"},
-    [SECTION_ID_STREAM_GROUP_BLOCK] =
-        {SECTION_ID_STREAM_GROUP_BLOCK,
-         "block",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE,
-         {-1},
-         .element_name = "block_entry",
-         .get_type = get_raw_string_type},
-    [SECTION_ID_STREAM_GROUP_STREAMS] = {SECTION_ID_STREAM_GROUP_STREAMS,
-                                         "streams",
-                                         AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                         {SECTION_ID_STREAM_GROUP_STREAM, -1},
-                                         .unique_name = "stream_group_streams"},
-    [SECTION_ID_STREAM_GROUP_STREAM] =
-        {SECTION_ID_STREAM_GROUP_STREAM,
-         "stream",
-         0,
-         {SECTION_ID_STREAM_GROUP_STREAM_DISPOSITION,
-          SECTION_ID_STREAM_GROUP_STREAM_TAGS, -1},
-         .unique_name = "stream_group_stream"},
-    [SECTION_ID_STREAM_GROUP_DISPOSITION] =
-        {SECTION_ID_STREAM_GROUP_DISPOSITION,
-         "disposition",
-         0,
-         {-1},
-         .unique_name = "stream_group_disposition"},
-    [SECTION_ID_STREAM_GROUP_TAGS] =
-        {SECTION_ID_STREAM_GROUP_TAGS,
-         "tags",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-         {-1},
-         .element_name = "tag",
-         .unique_name = "stream_group_tags"},
-    [SECTION_ID_STREAM_GROUPS] = {SECTION_ID_STREAM_GROUPS,
-                                  "stream_groups",
-                                  AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                  {SECTION_ID_STREAM_GROUP, -1}},
-    [SECTION_ID_ROOT] =
-        {SECTION_ID_ROOT,
-         "root",
-         AV_TEXTFORMAT_SECTION_FLAG_IS_WRAPPER,
-         {SECTION_ID_CHAPTERS, SECTION_ID_FORMAT, SECTION_ID_FRAMES,
-          SECTION_ID_PROGRAMS, SECTION_ID_STREAM_GROUPS, SECTION_ID_STREAMS,
-          SECTION_ID_PACKETS, SECTION_ID_ERROR, SECTION_ID_PROGRAM_VERSION,
-          SECTION_ID_LIBRARY_VERSIONS, SECTION_ID_PIXEL_FORMATS, -1}},
-    [SECTION_ID_STREAMS] = {SECTION_ID_STREAMS,
-                            "streams",
-                            AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                            {SECTION_ID_STREAM, -1}},
-    [SECTION_ID_STREAM] = {SECTION_ID_STREAM,
-                           "stream",
-                           0,
-                           {SECTION_ID_STREAM_DISPOSITION,
-                            SECTION_ID_STREAM_TAGS,
-                            SECTION_ID_STREAM_SIDE_DATA_LIST, -1}},
-    [SECTION_ID_STREAM_DISPOSITION] = {SECTION_ID_STREAM_DISPOSITION,
-                                       "disposition",
-                                       0,
-                                       {-1},
-                                       .unique_name = "stream_disposition"},
-    [SECTION_ID_STREAM_TAGS] = {SECTION_ID_STREAM_TAGS,
-                                "tags",
-                                AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-                                {-1},
-                                .element_name = "tag",
-                                .unique_name = "stream_tags"},
-    [SECTION_ID_STREAM_SIDE_DATA_LIST] = {SECTION_ID_STREAM_SIDE_DATA_LIST,
-                                          "side_data_list",
-                                          AV_TEXTFORMAT_SECTION_FLAG_IS_ARRAY,
-                                          {SECTION_ID_STREAM_SIDE_DATA, -1},
-                                          .element_name = "side_data",
-                                          .unique_name =
-                                              "stream_side_data_list"},
-    [SECTION_ID_STREAM_SIDE_DATA] =
-        {SECTION_ID_STREAM_SIDE_DATA,
-         "side_data",
-         AV_TEXTFORMAT_SECTION_FLAG_HAS_TYPE |
-             AV_TEXTFORMAT_SECTION_FLAG_HAS_VARIABLE_FIELDS,
-         {-1},
-         .unique_name = "stream_side_data",
-         .element_name = "side_datum",
-         .get_type = get_packet_side_data_type},
-    [SECTION_ID_SUBTITLE] = {SECTION_ID_SUBTITLE, "subtitle", 0, {-1}},
-};
-
-static const OptionDef *options;
-
-/* FFprobe context */
-static const char *input_filename;
-static const char *print_input_filename;
-static const AVInputFormat *iformat = NULL;
-static const char *output_filename = NULL;
-
-static const char unit_second_str[] = "s";
-static const char unit_hertz_str[] = "Hz";
-static const char unit_byte_str[] = "byte";
-static const char unit_bit_per_second_str[] = "bit/s";
-
-static int nb_streams;
-static uint64_t *nb_streams_packets;
-static uint64_t *nb_streams_frames;
-static int *selected_streams;
-static int *streams_with_closed_captions;
-static int *streams_with_film_grain;
-
-static std::mutex log_mutex;
-
-typedef struct LogBuffer {
-  char *context_name;
-  int log_level;
-  char *log_message;
-  AVClassCategory category;
-  char *parent_name;
-  AVClassCategory parent_category;
-} LogBuffer;
-
-static LogBuffer *log_buffer;
-static int log_buffer_size;
-
-static void log_callback(void *ptr, int level, const char *fmt, va_list vl) {
-  AVClass *avc = ptr ? *(AVClass **)ptr : NULL;
-  va_list vl2;
-  char line[1024];
-  static int print_prefix = 1;
-  void *new_log_buffer;
-
-  va_copy(vl2, vl);
-  av_log_default_callback(ptr, level, fmt, vl);
-  av_log_format_line(ptr, level, fmt, vl2, line, sizeof(line), &print_prefix);
-  va_end(vl2);
-
-#if HAVE_THREADS
-  log_mutex.lock();
-
-  new_log_buffer =
-      av_realloc_array(log_buffer, log_buffer_size + 1, sizeof(*log_buffer));
-  if (new_log_buffer) {
-    char *msg;
-    int i;
-
-    log_buffer = (LogBuffer *)new_log_buffer;
-    memset(&log_buffer[log_buffer_size], 0,
-           sizeof(log_buffer[log_buffer_size]));
-    log_buffer[log_buffer_size].context_name =
-        avc ? av_strdup(avc->item_name(ptr)) : NULL;
-    if (avc) {
-      if (avc->get_category)
-        log_buffer[log_buffer_size].category = avc->get_category(ptr);
-      else
-        log_buffer[log_buffer_size].category = avc->category;
-    }
-    log_buffer[log_buffer_size].log_level = level;
-    msg = log_buffer[log_buffer_size].log_message = av_strdup(line);
-    for (i = strlen(msg) - 1; i >= 0 && msg[i] == '\n'; i--) {
-      msg[i] = 0;
-    }
-    if (avc && avc->parent_log_context_offset) {
-      AVClass **parent =
-          *(AVClass ***)(((uint8_t *)ptr) + avc->parent_log_context_offset);
-      if (parent && *parent) {
-        log_buffer[log_buffer_size].parent_name =
-            av_strdup((*parent)->item_name(parent));
-        log_buffer[log_buffer_size].parent_category =
-            (*parent)->get_category ? (*parent)->get_category(parent)
-                                    : (*parent)->category;
-      }
-    }
-    log_buffer_size++;
-  }
-
-  log_mutex.unlock();
-#endif
 }
 
 #define print_fmt(k, f, ...)                                                   \
@@ -730,8 +90,8 @@ static void log_callback(void *ptr, int level, const char *fmt, va_list vl) {
     memset((ptr) + (cur_n), 0, ((new_n) - (cur_n)) * sizeof(*(ptr)));          \
   }
 
-static inline int show_tags(AVTextFormatContext *tfc, AVDictionary *tags,
-                            int section_id) {
+int Prober::show_tags(AVTextFormatContext *tfc, AVDictionary *tags,
+                      int section_id) {
   const AVDictionaryEntry *tag = NULL;
   int ret = 0;
 
@@ -748,8 +108,8 @@ static inline int show_tags(AVTextFormatContext *tfc, AVDictionary *tags,
   return ret;
 }
 
-static void print_dovi_metadata(AVTextFormatContext *tfc,
-                                const AVDOVIMetadata *dovi) {
+void Prober::print_dovi_metadata(AVTextFormatContext *tfc,
+                                 const AVDOVIMetadata *dovi) {
   if (!dovi)
     return;
 
@@ -915,8 +275,8 @@ static void print_dovi_metadata(AVTextFormatContext *tfc,
   }
 }
 
-static void print_dynamic_hdr10_plus(AVTextFormatContext *tfc,
-                                     const AVDynamicHDRPlus *metadata) {
+void Prober::print_dynamic_hdr10_plus(AVTextFormatContext *tfc,
+                                      const AVDynamicHDRPlus *metadata) {
   if (!metadata)
     return;
   print_int("application version", metadata->application_version);
@@ -1013,10 +373,11 @@ static void print_dynamic_hdr10_plus(AVTextFormatContext *tfc,
   }
 }
 
-static void print_dynamic_hdr_vivid(AVTextFormatContext *tfc,
-                                    const AVDynamicHDRVivid *metadata) {
-  if (!metadata)
+void Prober::print_dynamic_hdr_vivid(AVTextFormatContext *tfc,
+                                     const AVDynamicHDRVivid *metadata) {
+  if (!metadata) {
     return;
+  }
   print_int("system_start_code", metadata->system_start_code);
   print_int("num_windows", metadata->num_windows);
 
@@ -1087,19 +448,19 @@ static void print_dynamic_hdr_vivid(AVTextFormatContext *tfc,
   }
 }
 
-static void
-print_ambient_viewing_environment(AVTextFormatContext *tfc,
-                                  const AVAmbientViewingEnvironment *env) {
-  if (!env)
+void Prober::print_ambient_viewing_environment(
+    AVTextFormatContext *tfc, const AVAmbientViewingEnvironment *env) {
+  if (!env) {
     return;
+  }
 
   print_q("ambient_illuminance", env->ambient_illuminance, '/');
   print_q("ambient_light_x", env->ambient_light_x, '/');
   print_q("ambient_light_y", env->ambient_light_y, '/');
 }
 
-static void print_film_grain_params(AVTextFormatContext *tfc,
-                                    const AVFilmGrainParams *fgp) {
+void Prober::print_film_grain_params(AVTextFormatContext *tfc,
+                                     const AVFilmGrainParams *fgp) {
   const char *color_range, *color_primaries, *color_trc, *color_space;
   const char *const film_grain_type_names[] = {
       [AV_FILM_GRAIN_PARAMS_NONE] = "none",
@@ -1240,9 +601,10 @@ static void print_film_grain_params(AVTextFormatContext *tfc,
   av_bprint_finalize(&pbuf, NULL);
 }
 
-static void print_pkt_side_data(AVTextFormatContext *tfc,
-                                AVCodecParameters *par,
-                                const AVPacketSideData *sd, SectionID id_data) {
+void Prober::print_pkt_side_data(AVTextFormatContext *tfc,
+                                 AVCodecParameters *par,
+                                 const AVPacketSideData *sd,
+                                 SectionID id_data) {
   const char *name = av_packet_side_data_name(sd->type);
 
   avtext_print_section_header(tfc, sd, id_data);
@@ -1371,7 +733,7 @@ static void print_pkt_side_data(AVTextFormatContext *tfc,
   }
 }
 
-static void print_private_data(AVTextFormatContext *tfc, void *priv_data) {
+void Prober::print_private_data(AVTextFormatContext *tfc, void *priv_data) {
   const AVOption *opt = NULL;
   while ((opt = av_opt_next(priv_data, opt))) {
     uint8_t *str;
@@ -1384,8 +746,8 @@ static void print_private_data(AVTextFormatContext *tfc, void *priv_data) {
   }
 }
 
-static void print_pixel_format(AVTextFormatContext *tfc,
-                               enum AVPixelFormat pix_fmt) {
+void Prober::print_pixel_format(AVTextFormatContext *tfc,
+                                enum AVPixelFormat pix_fmt) {
   const char *s = av_get_pix_fmt_name(pix_fmt);
   enum AVPixelFormat swapped_pix_fmt;
 
@@ -1409,8 +771,8 @@ static void print_pixel_format(AVTextFormatContext *tfc,
   }
 }
 
-static void print_color_range(AVTextFormatContext *tfc,
-                              enum AVColorRange color_range) {
+void Prober::print_color_range(AVTextFormatContext *tfc,
+                               enum AVColorRange color_range) {
   const char *val = av_color_range_name(color_range);
   if (!val || color_range == AVCOL_RANGE_UNSPECIFIED) {
     print_str_opt("color_range", "unknown");
@@ -1419,8 +781,8 @@ static void print_color_range(AVTextFormatContext *tfc,
   }
 }
 
-static void print_color_space(AVTextFormatContext *tfc,
-                              enum AVColorSpace color_space) {
+void Prober::print_color_space(AVTextFormatContext *tfc,
+                               enum AVColorSpace color_space) {
   const char *val = av_color_space_name(color_space);
   if (!val || color_space == AVCOL_SPC_UNSPECIFIED) {
     print_str_opt("color_space", "unknown");
@@ -1429,8 +791,8 @@ static void print_color_space(AVTextFormatContext *tfc,
   }
 }
 
-static void print_primaries(AVTextFormatContext *tfc,
-                            enum AVColorPrimaries color_primaries) {
+void Prober::print_primaries(AVTextFormatContext *tfc,
+                             enum AVColorPrimaries color_primaries) {
   const char *val = av_color_primaries_name(color_primaries);
   if (!val || color_primaries == AVCOL_PRI_UNSPECIFIED) {
     print_str_opt("color_primaries", "unknown");
@@ -1439,8 +801,8 @@ static void print_primaries(AVTextFormatContext *tfc,
   }
 }
 
-static void print_color_trc(AVTextFormatContext *tfc,
-                            enum AVColorTransferCharacteristic color_trc) {
+void Prober::print_color_trc(AVTextFormatContext *tfc,
+                             enum AVColorTransferCharacteristic color_trc) {
   const char *val = av_color_transfer_name(color_trc);
   if (!val || color_trc == AVCOL_TRC_UNSPECIFIED) {
     print_str_opt("color_transfer", "unknown");
@@ -1449,8 +811,8 @@ static void print_color_trc(AVTextFormatContext *tfc,
   }
 }
 
-static void print_chroma_location(AVTextFormatContext *tfc,
-                                  enum AVChromaLocation chroma_location) {
+void Prober::print_chroma_location(AVTextFormatContext *tfc,
+                                   enum AVChromaLocation chroma_location) {
   const char *val = av_chroma_location_name(chroma_location);
   if (!val || chroma_location == AVCHROMA_LOC_UNSPECIFIED) {
     print_str_opt("chroma_location", "unspecified");
@@ -1459,7 +821,7 @@ static void print_chroma_location(AVTextFormatContext *tfc,
   }
 }
 
-static void clear_log(int need_lock) {
+void Prober::clear_log(int need_lock) {
   int i;
 
   if (need_lock)
@@ -1474,8 +836,8 @@ static void clear_log(int need_lock) {
     log_mutex.unlock();
 }
 
-static int show_log(AVTextFormatContext *tfc, int section_ids, int section_id,
-                    int log_level) {
+int Prober::show_log(AVTextFormatContext *tfc, int section_ids, int section_id,
+                     int log_level) {
   int i;
   log_mutex.lock();
   if (!log_buffer_size) {
@@ -1509,8 +871,8 @@ static int show_log(AVTextFormatContext *tfc, int section_ids, int section_id,
   return 0;
 }
 
-static void show_packet(AVTextFormatContext *tfc, InputFile *ifile,
-                        AVPacket *pkt, int packet_idx) {
+void Prober::show_packet(AVTextFormatContext *tfc, InputFile *ifile,
+                         AVPacket *pkt, int packet_idx) {
   AVStream *st = ifile->streams[pkt->stream_index].st;
   AVBPrint pbuf;
   const char *s;
@@ -1549,8 +911,9 @@ static void show_packet(AVTextFormatContext *tfc, InputFile *ifile,
         av_packet_get_side_data(pkt, AV_PKT_DATA_STRINGS_METADATA, &size);
     if (side_metadata && size && 0) {
       AVDictionary *dict = NULL;
-      if (av_packet_unpack_dictionary(side_metadata, size, &dict) >= 0)
+      if (av_packet_unpack_dictionary(side_metadata, size, &dict) >= 0) {
         show_tags(tfc, dict, SECTION_ID_PACKET_TAGS);
+      }
       av_dict_free(&dict);
     }
 
@@ -1569,8 +932,8 @@ static void show_packet(AVTextFormatContext *tfc, InputFile *ifile,
   fflush(stdout);
 }
 
-static void show_subtitle(AVTextFormatContext *tfc, AVSubtitle *sub,
-                          AVStream *stream, AVFormatContext *fmt_ctx) {
+void Prober::show_subtitle(AVTextFormatContext *tfc, AVSubtitle *sub,
+                           AVStream *stream, AVFormatContext *fmt_ctx) {
   AVBPrint pbuf;
 
   av_bprint_init(&pbuf, 1, AV_BPRINT_SIZE_UNLIMITED);
@@ -1592,9 +955,9 @@ static void show_subtitle(AVTextFormatContext *tfc, AVSubtitle *sub,
   fflush(stdout);
 }
 
-static void print_frame_side_data(AVTextFormatContext *tfc,
-                                  const AVFrame *frame,
-                                  const AVStream *stream) {
+void Prober::print_frame_side_data(AVTextFormatContext *tfc,
+                                   const AVFrame *frame,
+                                   const AVStream *stream) {
   avtext_print_section_header(tfc, NULL, SECTION_ID_FRAME_SIDE_DATA_LIST);
 
   for (int i = 0; i < frame->nb_side_data; i++) {
@@ -1684,8 +1047,8 @@ static void print_frame_side_data(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc);
 }
 
-static void show_frame(AVTextFormatContext *tfc, AVFrame *frame,
-                       AVStream *stream, AVFormatContext *fmt_ctx) {
+void Prober::show_frame(AVTextFormatContext *tfc, AVFrame *frame,
+                        AVStream *stream, AVFormatContext *fmt_ctx) {
   FrameData *fd =
       frame->opaque_ref ? (FrameData *)frame->opaque_ref->data : NULL;
   AVBPrint pbuf;
@@ -1778,10 +1141,9 @@ static void show_frame(AVTextFormatContext *tfc, AVFrame *frame,
   fflush(stdout);
 }
 
-static av_always_inline int process_frame(AVTextFormatContext *tfc,
-                                          InputFile *ifile, AVFrame *frame,
-                                          const AVPacket *pkt,
-                                          int *packet_new) {
+int Prober::process_frame(AVTextFormatContext *tfc, InputFile *ifile,
+                          AVFrame *frame, const AVPacket *pkt,
+                          int *packet_new) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   AVCodecContext *dec_ctx = ifile->streams[pkt->stream_index].dec_ctx;
   AVCodecParameters *par = ifile->streams[pkt->stream_index].st->codecpar;
@@ -1844,8 +1206,8 @@ static av_always_inline int process_frame(AVTextFormatContext *tfc,
   return got_frame || *packet_new;
 }
 
-static void log_read_interval(const ReadInterval *interval, void *log_ctx,
-                              int log_level) {
+void Prober::log_read_interval(const ReadInterval *interval, void *log_ctx,
+                               int log_level) {
   av_log(log_ctx, log_level, "id:%d", interval->id);
 
   if (interval->has_start) {
@@ -1874,9 +1236,9 @@ static void log_read_interval(const ReadInterval *interval, void *log_ctx,
   av_log(log_ctx, log_level, "\n");
 }
 
-static int read_interval_packets(AVTextFormatContext *tfc, InputFile *ifile,
-                                 const ReadInterval *interval,
-                                 int64_t *cur_ts) {
+int Prober::read_interval_packets(AVTextFormatContext *tfc, InputFile *ifile,
+                                  const ReadInterval *interval,
+                                  int64_t *cur_ts) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   AVPacket *pkt = NULL;
   AVFrame *frame = NULL;
@@ -2000,7 +1362,7 @@ end:
   return ret;
 }
 
-static int read_packets(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::read_packets(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
   int64_t cur_ts = fmt_ctx->start_time;
@@ -2019,8 +1381,8 @@ static int read_packets(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static void print_dispositions(AVTextFormatContext *tfc, uint32_t disposition,
-                               SectionID section_id) {
+void Prober::print_dispositions(AVTextFormatContext *tfc, uint32_t disposition,
+                                SectionID section_id) {
   avtext_print_section_header(tfc, NULL, section_id);
   for (int i = 0; i < sizeof(disposition) * CHAR_BIT; i++) {
     const char *disposition_str = av_disposition_to_string(1U << i);
@@ -2031,11 +1393,8 @@ static void print_dispositions(AVTextFormatContext *tfc, uint32_t disposition,
   avtext_print_section_footer(tfc);
 }
 
-#define IN_PROGRAM 1
-#define IN_STREAM_GROUP 2
-
-static int show_stream(AVTextFormatContext *tfc, AVFormatContext *fmt_ctx,
-                       int stream_idx, InputStream *ist, int container) {
+int Prober::show_stream(AVTextFormatContext *tfc, AVFormatContext *fmt_ctx,
+                        int stream_idx, InputStream *ist, int container) {
   AVStream *stream = ist->st;
   AVCodecParameters *par;
   AVCodecContext *dec_ctx;
@@ -2248,7 +1607,7 @@ static int show_stream(AVTextFormatContext *tfc, AVFormatContext *fmt_ctx,
   return ret;
 }
 
-static int show_streams(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::show_streams(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
 
@@ -2264,8 +1623,8 @@ static int show_streams(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static int show_program(AVTextFormatContext *tfc, InputFile *ifile,
-                        AVProgram *program) {
+int Prober::show_program(AVTextFormatContext *tfc, InputFile *ifile,
+                         AVProgram *program) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
 
@@ -2294,7 +1653,7 @@ end:
   return ret;
 }
 
-static int show_programs(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::show_programs(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
 
@@ -2311,9 +1670,9 @@ static int show_programs(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static void print_tile_grid_params(AVTextFormatContext *tfc,
-                                   const AVStreamGroup *stg,
-                                   const AVStreamGroupTileGrid *tile_grid) {
+void Prober::print_tile_grid_params(AVTextFormatContext *tfc,
+                                    const AVStreamGroup *stg,
+                                    const AVStreamGroupTileGrid *tile_grid) {
   avtext_print_section_header(tfc, stg, SECTION_ID_STREAM_GROUP_COMPONENT);
   print_int("nb_tiles", tile_grid->nb_tiles);
   print_int("coded_width", tile_grid->coded_width);
@@ -2335,10 +1694,10 @@ static void print_tile_grid_params(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc);
 }
 
-static void print_iamf_param_definition(AVTextFormatContext *tfc,
-                                        const char *name,
-                                        const AVIAMFParamDefinition *param,
-                                        SectionID section_id) {
+void Prober::print_iamf_param_definition(AVTextFormatContext *tfc,
+                                         const char *name,
+                                         const AVIAMFParamDefinition *param,
+                                         SectionID section_id) {
   SectionID subsection_id, parameter_section_id;
   subsection_id = (SectionID)sections[section_id].children_ids[0];
   av_assert0(subsection_id != -1);
@@ -2394,10 +1753,9 @@ static void print_iamf_param_definition(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc);   // section_id
 }
 
-static void
-print_iamf_audio_element_params(AVTextFormatContext *tfc,
-                                const AVStreamGroup *stg,
-                                const AVIAMFAudioElement *audio_element) {
+void Prober::print_iamf_audio_element_params(
+    AVTextFormatContext *tfc, const AVStreamGroup *stg,
+    const AVIAMFAudioElement *audio_element) {
   avtext_print_section_header(tfc, stg, SECTION_ID_STREAM_GROUP_COMPONENT);
   print_int("nb_layers", audio_element->nb_layers);
   print_int("audio_element_type", audio_element->audio_element_type);
@@ -2431,8 +1789,8 @@ print_iamf_audio_element_params(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc); // SECTION_ID_STREAM_GROUP_COMPONENT
 }
 
-static void print_iamf_submix_params(AVTextFormatContext *tfc,
-                                     const AVIAMFSubmix *submix) {
+void Prober::print_iamf_submix_params(AVTextFormatContext *tfc,
+                                      const AVIAMFSubmix *submix) {
   avtext_print_section_header(tfc, "IAMF Submix",
                               SECTION_ID_STREAM_GROUP_SUBCOMPONENT);
   print_int("nb_elements", submix->nb_elements);
@@ -2485,7 +1843,7 @@ static void print_iamf_submix_params(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc); // SECTION_ID_STREAM_GROUP_SUBCOMPONENT
 }
 
-static void print_iamf_mix_presentation_params(
+void Prober::print_iamf_mix_presentation_params(
     AVTextFormatContext *tfc, const AVStreamGroup *stg,
     const AVIAMFMixPresentation *mix_presentation) {
   avtext_print_section_header(tfc, stg, SECTION_ID_STREAM_GROUP_COMPONENT);
@@ -2506,8 +1864,8 @@ static void print_iamf_mix_presentation_params(
   avtext_print_section_footer(tfc); // SECTION_ID_STREAM_GROUP_COMPONENT
 }
 
-static void print_stream_group_params(AVTextFormatContext *tfc,
-                                      AVStreamGroup *stg) {
+void Prober::print_stream_group_params(AVTextFormatContext *tfc,
+                                       AVStreamGroup *stg) {
   avtext_print_section_header(tfc, NULL, SECTION_ID_STREAM_GROUP_COMPONENTS);
   if (stg->type == AV_STREAM_GROUP_PARAMS_TILE_GRID)
     print_tile_grid_params(tfc, stg, stg->params.tile_grid);
@@ -2519,8 +1877,8 @@ static void print_stream_group_params(AVTextFormatContext *tfc,
   avtext_print_section_footer(tfc); // SECTION_ID_STREAM_GROUP_COMPONENTS
 }
 
-static int show_stream_group(AVTextFormatContext *tfc, InputFile *ifile,
-                             AVStreamGroup *stg) {
+int Prober::show_stream_group(AVTextFormatContext *tfc, InputFile *ifile,
+                              AVStreamGroup *stg) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   AVBPrint pbuf;
   int i, ret = 0;
@@ -2560,7 +1918,7 @@ end:
   return ret;
 }
 
-static int show_stream_groups(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::show_stream_groups(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
 
@@ -2576,7 +1934,7 @@ static int show_stream_groups(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static int show_chapters(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::show_chapters(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int i, ret = 0;
 
@@ -2598,7 +1956,7 @@ static int show_chapters(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static int show_format(AVTextFormatContext *tfc, InputFile *ifile) {
+int Prober::show_format(AVTextFormatContext *tfc, InputFile *ifile) {
   AVFormatContext *fmt_ctx = ifile->fmt_ctx;
   int64_t size = fmt_ctx->pb ? avio_size(fmt_ctx->pb) : -1;
   int ret = 0;
@@ -2634,15 +1992,15 @@ static int show_format(AVTextFormatContext *tfc, InputFile *ifile) {
   return ret;
 }
 
-static void show_error(AVTextFormatContext *tfc, int err) {
+void Prober::show_error(AVTextFormatContext *tfc, int err) {
   avtext_print_section_header(tfc, NULL, SECTION_ID_ERROR);
   print_int("code", err);
   print_str("string", av_err2str(err));
   avtext_print_section_footer(tfc);
 }
 
-static int open_input_file(InputFile *ifile, const char *filename,
-                           const char *print_filename) {
+int Prober::open_input_file(InputFile *ifile, const char *filename,
+                            const char *print_filename) {
   int err, i;
   AVFormatContext *fmt_ctx = NULL;
   const AVDictionaryEntry *t = NULL;
@@ -2759,7 +2117,7 @@ static int open_input_file(InputFile *ifile, const char *filename,
   return 0;
 }
 
-static void close_input_file(InputFile *ifile) {
+void close_input_file(InputFile *ifile) {
   int i;
 
   /* close decoder for each stream */
@@ -2772,8 +2130,8 @@ static void close_input_file(InputFile *ifile) {
   avformat_close_input(&ifile->fmt_ctx);
 }
 
-static int probe_file(AVTextFormatContext *tfc, const char *filename,
-                      const char *print_filename) {
+int Prober::probe_file(AVTextFormatContext *tfc, const char *filename,
+                       const char *print_filename) {
   InputFile ifile = {0};
   int ret, i;
   int section_id;
@@ -2824,60 +2182,7 @@ end:
   return ret;
 }
 
-static void show_usage(void) {
-  av_log(NULL, AV_LOG_INFO, "Simple multimedia streams analyzer\n");
-  av_log(NULL, AV_LOG_INFO, "usage: %s [OPTIONS] INPUT_FILE\n", program_name);
-  av_log(NULL, AV_LOG_INFO, "\n");
-}
-
-static void ffprobe_show_program_version(AVTextFormatContext *tfc) {
-  AVBPrint pbuf;
-  av_bprint_init(&pbuf, 1, AV_BPRINT_SIZE_UNLIMITED);
-
-  avtext_print_section_header(tfc, NULL, SECTION_ID_PROGRAM_VERSION);
-  // print_str("version", FFMPEG_VERSION);
-  // print_fmt("copyright", "Copyright (c) %d-%d the FFmpeg developers",
-  //           program_birth_year, "2025");
-  // print_str("compiler_ident", CC_IDENT);
-  // print_str("configuration", FFMPEG_CONFIGURATION);
-  avtext_print_section_footer(tfc);
-
-  av_bprint_finalize(&pbuf, NULL);
-}
-
-#define SHOW_LIB_VERSION(libname, LIBNAME)                                     \
-  do {                                                                         \
-    if (CONFIG_##LIBNAME) {                                                    \
-      unsigned int version = libname##_version();                              \
-      avtext_print_section_header(tfc, NULL, SECTION_ID_LIBRARY_VERSION);      \
-      print_str("name", "lib" #libname);                                       \
-      print_int("major", LIB##LIBNAME##_VERSION_MAJOR);                        \
-      print_int("minor", LIB##LIBNAME##_VERSION_MINOR);                        \
-      print_int("micro", LIB##LIBNAME##_VERSION_MICRO);                        \
-      print_int("version", version);                                           \
-      print_str("ident", LIB##LIBNAME##_IDENT);                                \
-      avtext_print_section_footer(tfc);                                        \
-    }                                                                          \
-  } while (0)
-
-static void ffprobe_show_library_versions(AVTextFormatContext *tfc) {
-  avtext_print_section_header(tfc, NULL, SECTION_ID_LIBRARY_VERSIONS);
-  // SHOW_LIB_VERSION(avutil, AVUTIL);
-  // SHOW_LIB_VERSION(avcodec, AVCODEC);
-  // SHOW_LIB_VERSION(avformat, AVFORMAT);
-  // SHOW_LIB_VERSION(avdevice, AVDEVICE);
-  // SHOW_LIB_VERSION(avfilter, AVFILTER);
-  // SHOW_LIB_VERSION(swscale, SWSCALE);
-  // SHOW_LIB_VERSION(swresample, SWRESAMPLE);
-  avtext_print_section_footer(tfc);
-}
-
-#define PRINT_PIX_FMT_FLAG(flagname, name)                                     \
-  do {                                                                         \
-    print_int(name, !!(pixdesc->flags & AV_PIX_FMT_FLAG_##flagname));          \
-  } while (0)
-
-static void ffprobe_show_pixel_formats(AVTextFormatContext *tfc) {
+void Prober::ffprobe_show_pixel_formats(AVTextFormatContext *tfc) {
   const AVPixFmtDescriptor *pixdesc = NULL;
   int i, n;
 
@@ -2917,8 +2222,8 @@ static void ffprobe_show_pixel_formats(AVTextFormatContext *tfc) {
   avtext_print_section_footer(tfc);
 }
 
-static int opt_show_optional_fields(void *optctx, const char *opt,
-                                    const char *arg) {
+int Prober::opt_show_optional_fields(void *optctx, const char *opt,
+                                     const char *arg) {
   if (!av_strcasecmp(arg, "always"))
     show_optional_fields = SHOW_OPTIONAL_FIELDS_ALWAYS;
   else if (!av_strcasecmp(arg, "never"))
@@ -2939,7 +2244,7 @@ static int opt_show_optional_fields(void *optctx, const char *opt,
   return 0;
 }
 
-static int opt_format(void *optctx, const char *opt, const char *arg) {
+int Prober::opt_format(void *optctx, const char *opt, const char *arg) {
   iformat = av_find_input_format(arg);
   if (!iformat) {
     av_log(NULL, AV_LOG_ERROR, "Unknown input format: %s\n", arg);
@@ -2948,9 +2253,9 @@ static int opt_format(void *optctx, const char *opt, const char *arg) {
   return 0;
 }
 
-static inline void mark_section_show_entries(SectionID section_id,
-                                             int show_all_entries,
-                                             AVDictionary *entries) {
+void Prober::mark_section_show_entries(SectionID section_id,
+                                       int show_all_entries,
+                                       AVDictionary *entries) {
   struct AVTextFormatSection *section = &sections[section_id];
 
   section->show_all_entries = show_all_entries;
@@ -2962,8 +2267,8 @@ static inline void mark_section_show_entries(SectionID section_id,
   }
 }
 
-static int match_section(const char *section_name, int show_all_entries,
-                         AVDictionary *entries) {
+int Prober::match_section(const char *section_name, int show_all_entries,
+                          AVDictionary *entries) {
   int i, ret = 0;
 
   for (i = 0; i < FF_ARRAY_ELEMS(sections); i++) {
@@ -2981,116 +2286,13 @@ static int match_section(const char *section_name, int show_all_entries,
   return ret;
 }
 
-static int opt_show_entries(void *optctx, const char *opt, const char *arg) {
-  const char *p = arg;
-  int ret = 0;
-
-  while (*p) {
-    AVDictionary *entries = NULL;
-    char *section_name = av_get_token(&p, "=:");
-    int show_all_entries = 0;
-
-    if (!section_name) {
-      av_log(NULL, AV_LOG_ERROR, "Missing section name for option '%s'\n", opt);
-      return AVERROR(EINVAL);
-    }
-
-    if (*p == '=') {
-      p++;
-      while (*p && *p != ':') {
-        char *entry = av_get_token(&p, ",:");
-        if (!entry)
-          break;
-        av_log(NULL, AV_LOG_VERBOSE,
-               "Adding '%s' to the entries to show in section '%s'\n", entry,
-               section_name);
-        av_dict_set(&entries, entry, "", AV_DICT_DONT_STRDUP_KEY);
-        if (*p == ',')
-          p++;
-      }
-    } else {
-      show_all_entries = 1;
-    }
-
-    ret = match_section(section_name, show_all_entries, entries);
-    if (ret == 0) {
-      av_log(NULL, AV_LOG_ERROR, "No match for section '%s'\n", section_name);
-      ret = AVERROR(EINVAL);
-    }
-    av_dict_free(&entries);
-    av_free(section_name);
-
-    if (ret <= 0)
-      break;
-    if (*p)
-      p++;
-  }
-
-  return ret;
-}
-
-static int opt_input_file(void *optctx, const char *arg) {
-  if (input_filename) {
-    av_log(NULL, AV_LOG_ERROR,
-           "Argument '%s' provided as input filename, but '%s' was already "
-           "specified.\n",
-           arg, input_filename);
-    return AVERROR(EINVAL);
-  }
-  if (!strcmp(arg, "-"))
-    arg = "fd:";
-  input_filename = av_strdup(arg);
-  if (!input_filename)
-    return AVERROR(ENOMEM);
-
-  return 0;
-}
-
-static int opt_input_file_i(void *optctx, const char *opt, const char *arg) {
-  opt_input_file(optctx, arg);
-  return 0;
-}
-
-static int opt_output_file_o(void *optctx, const char *opt, const char *arg) {
-  if (output_filename) {
-    av_log(NULL, AV_LOG_ERROR,
-           "Argument '%s' provided as output filename, but '%s' was already "
-           "specified.\n",
-           arg, output_filename);
-    return AVERROR(EINVAL);
-  }
-  if (!strcmp(arg, "-"))
-    arg = "fd:";
-  output_filename = av_strdup(arg);
-  if (!output_filename)
-    return AVERROR(ENOMEM);
-
-  return 0;
-}
-
-static int opt_print_filename(void *optctx, const char *opt, const char *arg) {
-  av_freep(&print_input_filename);
-  print_input_filename = av_strdup(arg);
-  return print_input_filename ? 0 : AVERROR(ENOMEM);
-}
-
-void show_help_default(const char *opt, const char *arg) {
-  av_log_set_callback(log_callback_help);
-  show_usage();
-  show_help_options(options, "Main options:", 0, 0);
-  printf("\n");
-
-  show_help_children(avformat_get_class(), AV_OPT_FLAG_DECODING_PARAM);
-  show_help_children(avcodec_get_class(), AV_OPT_FLAG_DECODING_PARAM);
-}
-
 /**
  * Parse interval specification, according to the format:
  * INTERVAL ::= [START|+START_OFFSET][%[END|+END_OFFSET]]
  * INTERVALS ::= INTERVAL[,INTERVALS]
  */
-static int parse_read_interval(const char *interval_spec,
-                               ReadInterval *interval) {
+int Prober::parse_read_interval(const char *interval_spec,
+                                ReadInterval *interval) {
   int ret = 0;
   char *next, *p, *spec = av_strdup(interval_spec);
   if (!spec)
@@ -3173,7 +2375,7 @@ end:
   return ret;
 }
 
-static int parse_read_intervals(const char *intervals_spec) {
+int Prober::parse_read_intervals(const char *intervals_spec) {
   int ret, n, i;
   char *p, *spec = av_strdup(intervals_spec);
   if (!spec)
@@ -3220,15 +2422,7 @@ end:
   return ret;
 }
 
-static int opt_read_intervals(void *optctx, const char *opt, const char *arg) {
-  return parse_read_intervals(arg);
-}
-
-static int opt_pretty(void *optctx, const char *opt, const char *arg) {
-  return 0;
-}
-
-static void print_section(SectionID id, int level) {
+void Prober::print_section(SectionID id, int level) {
   const int *pid;
   const struct AVTextFormatSection *section = &sections[id];
   printf("%c%c%c%c",
@@ -3246,46 +2440,7 @@ static void print_section(SectionID id, int level) {
     print_section((SectionID)*pid, level + 1);
 }
 
-static int opt_sections(void *optctx, const char *opt, const char *arg) {
-  printf("Sections:\n"
-         "W... = Section is a wrapper (contains other sections, no local "
-         "entries)\n"
-         ".A.. = Section contains an array of elements of the same type\n"
-         "..V. = Section may contain a variable number of fields with variable "
-         "keys\n"
-         "...T = Section contain a unique type\n"
-         "FLAGS NAME/UNIQUE_NAME\n"
-         "----\n");
-  print_section(SECTION_ID_ROOT, 0);
-  return 0;
-}
-
-static int opt_show_versions(void *optctx, const char *opt, const char *arg) {
-  mark_section_show_entries(SECTION_ID_PROGRAM_VERSION, 1, NULL);
-  mark_section_show_entries(SECTION_ID_LIBRARY_VERSION, 1, NULL);
-  return 0;
-}
-
-#define DEFINE_OPT_SHOW_SECTION(section, target_section_id)                    \
-  static int opt_show_##section(void *optctx, const char *opt,                 \
-                                const char *arg) {                             \
-    mark_section_show_entries(SECTION_ID_##target_section_id, 1, NULL);        \
-    return 0;                                                                  \
-  }
-
-DEFINE_OPT_SHOW_SECTION(chapters, CHAPTERS)
-DEFINE_OPT_SHOW_SECTION(error, ERROR)
-DEFINE_OPT_SHOW_SECTION(format, FORMAT)
-DEFINE_OPT_SHOW_SECTION(frames, FRAMES)
-DEFINE_OPT_SHOW_SECTION(library_versions, LIBRARY_VERSIONS)
-DEFINE_OPT_SHOW_SECTION(packets, PACKETS)
-DEFINE_OPT_SHOW_SECTION(pixel_formats, PIXEL_FORMATS)
-DEFINE_OPT_SHOW_SECTION(program_version, PROGRAM_VERSION)
-DEFINE_OPT_SHOW_SECTION(streams, STREAMS)
-DEFINE_OPT_SHOW_SECTION(programs, PROGRAMS)
-DEFINE_OPT_SHOW_SECTION(stream_groups, STREAM_GROUPS)
-
-static inline int check_section_show_entries(int section_id) {
+int Prober::check_section_show_entries(int section_id) {
   struct AVTextFormatSection *section = &sections[section_id];
   if (sections[section_id].show_all_entries ||
       sections[section_id].entries_to_show)
@@ -3294,111 +2449,4 @@ static inline int check_section_show_entries(int section_id) {
     if (check_section_show_entries(*id))
       return 1;
   return 0;
-}
-
-#define SET_DO_SHOW(id, varname)                                               \
-  do {                                                                         \
-    if (check_section_show_entries(SECTION_ID_##id))                           \
-      do_show_##varname = 1;                                                   \
-  } while (0)
-
-int main(int argc, char **argv) {
-  const AVTextFormatter *f;
-  AVTextFormatContext *tctx;
-  AVTextWriterContext *wctx;
-  char *buf;
-  char *f_name = NULL, *f_args = NULL;
-  int ret, i;
-
-  init_dynload();
-
-  setvbuf(stderr, NULL, _IONBF, 0); /* win32 runtime needs this */
-
-  av_log_set_flags(AV_LOG_SKIP_REPEATED);
-
-  avformat_network_init();
-#if CONFIG_AVDEVICE
-  avdevice_register_all();
-#endif
-
-  // show_banner(argc, argv, options);
-  ret = parse_options(NULL, argc, argv, options, opt_input_file);
-  if (ret < 0) {
-    ret = (ret == AVERROR_EXIT) ? 0 : ret;
-    goto end;
-  }
-
-  if (!output_format)
-    output_format = av_strdup("default");
-  if (!output_format) {
-    ret = AVERROR(ENOMEM);
-    goto end;
-  }
-  f_name = av_strtok(output_format, "=", &buf);
-  if (!f_name) {
-    av_log(NULL, AV_LOG_ERROR, "No name specified for the output format\n");
-    ret = AVERROR(EINVAL);
-    goto end;
-  }
-  f_args = buf;
-
-  f = avtext_get_formatter_by_name(f_name);
-  if (!f) {
-    av_log(NULL, AV_LOG_ERROR, "Unknown output format with name '%s'\n",
-           f_name);
-    ret = AVERROR(EINVAL);
-    goto end;
-  }
-
-  if (output_filename) {
-    ret = avtextwriter_create_file(&wctx, output_filename);
-  } else
-    ret = avtextwriter_create_stdout(&wctx);
-
-  if (ret < 0) {
-    goto end;
-  }
-  if ((ret = avtext_context_open(&tctx, f, wctx, f_args, sections,
-                                 FF_ARRAY_ELEMS(sections), 0, 0, 0, 0,
-                                 show_optional_fields, show_data_hash)) >= 0) {
-    if (f == &avtextformatter_xml)
-      tctx->string_validation_utf8_flags |=
-          AV_UTF8_FLAG_EXCLUDE_XML_INVALID_CONTROL_CODES;
-
-    avtext_print_section_header(tctx, NULL, SECTION_ID_ROOT);
-
-    if (!input_filename) {
-      show_usage();
-      av_log(NULL, AV_LOG_ERROR, "You have to specify one input file.\n");
-      av_log(NULL, AV_LOG_ERROR,
-             "Use -h to get full help or, even better, run 'man %s'.\n",
-             program_name);
-      ret = AVERROR(EINVAL);
-    } else if (input_filename) {
-      ret = probe_file(tctx, input_filename, print_input_filename);
-      if (ret < 0 && 0)
-        show_error(tctx, ret);
-    }
-
-    avtext_print_section_footer(tctx);
-
-    avtextwriter_context_close(&wctx);
-
-    avtext_context_close(&tctx);
-  }
-
-end:
-  av_freep(&output_format);
-  av_freep(&output_filename);
-  av_freep(&input_filename);
-  av_freep(&print_input_filename);
-  av_freep(&read_intervals);
-
-  uninit_opts();
-  for (i = 0; i < FF_ARRAY_ELEMS(sections); i++)
-    av_dict_free(&(sections[i].entries_to_show));
-
-  avformat_network_deinit();
-
-  return ret < 0;
 }

@@ -69,10 +69,6 @@ void uninit_opts(void) {
   av_dict_free(&codec_opts);
 }
 
-void log_callback_help(void *ptr, int level, const char *fmt, va_list vl) {
-  vfprintf(stdout, fmt, vl);
-}
-
 void init_dynload(void) {
 #if HAVE_SETDLLDIRECTORY && defined(_WIN32)
   /* Calling SetDllDirectory with the empty string (but not NULL) removes the
@@ -102,50 +98,6 @@ int parse_number(const char *context, const char *numstr, enum OptionType type,
 
   av_log(NULL, AV_LOG_FATAL, error, context, numstr, min, max);
   return AVERROR(EINVAL);
-}
-
-void show_help_options(const OptionDef *options, const char *msg, int req_flags,
-                       int rej_flags) {
-  const OptionDef *po;
-  int first;
-
-  first = 1;
-  for (po = options; po->name; po++) {
-    char buf[128];
-
-    if (((po->flags & req_flags) != req_flags) || (po->flags & rej_flags))
-      continue;
-
-    if (first) {
-      printf("%s\n", msg);
-      first = 0;
-    }
-    av_strlcpy(buf, po->name, sizeof(buf));
-
-    if (po->flags & OPT_FLAG_PERSTREAM)
-      av_strlcat(buf, "[:<stream_spec>]", sizeof(buf));
-    else if (po->flags & OPT_FLAG_SPEC)
-      av_strlcat(buf, "[:<spec>]", sizeof(buf));
-
-    if (po->argname)
-      av_strlcatf(buf, sizeof(buf), " <%s>", po->argname);
-
-    printf("-%-17s  %s\n", buf, po->help);
-  }
-  printf("\n");
-}
-
-void show_help_children(const AVClass *cls, int flags) {
-  void *iter = NULL;
-  const AVClass *child;
-  if (cls->option) {
-    av_opt_show2(&cls, NULL, flags, 0);
-    printf("\n");
-  }
-
-  while ((child = av_opt_child_class_iterate(cls, &iter))) {
-    show_help_children(child, flags);
-  }
 }
 
 static const OptionDef *find_option(const OptionDef *po, const char *name) {

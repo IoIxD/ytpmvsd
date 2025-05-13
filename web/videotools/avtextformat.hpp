@@ -185,11 +185,5 @@ void avtext_print_integers(AVTextFormatContext *tctx, const char *name,
 const AVTextFormatter *avtext_get_formatter_by_name(const char *name);
 
 extern const AVTextFormatter avtextformatter_default;
-extern const AVTextFormatter avtextformatter_compact;
-extern const AVTextFormatter avtextformatter_csv;
-extern const AVTextFormatter avtextformatter_flat;
-extern const AVTextFormatter avtextformatter_ini;
-extern const AVTextFormatter avtextformatter_json;
-extern const AVTextFormatter avtextformatter_xml;
 
 #endif /* FFTOOLS_TEXTFORMAT_AVTEXTFORMAT_H */

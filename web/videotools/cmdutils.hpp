@@ -64,12 +64,6 @@ void init_dynload(void);
 void uninit_opts(void);
 
 /**
- * Trivial log callback.
- * Only suitable for opt_help and similar since it lacks prefix handling.
- */
-void log_callback_help(void *ptr, int level, const char *fmt, va_list vl);
-
-/**
  * Fallback for options that are not explicitly handled, these will be
  * parsed through AVOptions.
  */
@@ -263,29 +257,6 @@ typedef struct OptionDef {
     const char *const *names_alt;
   } u1;
 } OptionDef;
-
-/**
- * Print help for all options matching specified flags.
- *
- * @param options a list of options
- * @param msg title of this group. Only printed if at least one option matches.
- * @param req_flags print only options which have all those flags set.
- * @param rej_flags don't print options which have any of those flags set.
- */
-void show_help_options(const OptionDef *options, const char *msg, int req_flags,
-                       int rej_flags);
-
-/**
- * Show help for all options with given flags in class and all its
- * children.
- */
-void show_help_children(const AVClass *cls, int flags);
-
-/**
- * Per-fftool specific help handler. Implemented in each
- * fftool, called by show_help().
- */
-void show_help_default(const char *opt, const char *arg);
 
 /**
  * Parse the command line arguments.

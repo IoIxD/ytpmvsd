@@ -696,7 +696,7 @@ fail:
   return ret;
 }
 
-static const AVTextFormatter *registered_formatters[7 + 1];
+static const AVTextFormatter *registered_formatters[1];
 static void formatters_register_all(void) {
   static int initialized;
 
@@ -705,12 +705,6 @@ static void formatters_register_all(void) {
   initialized = 1;
 
   registered_formatters[0] = &avtextformatter_default;
-  registered_formatters[1] = &avtextformatter_compact;
-  registered_formatters[2] = &avtextformatter_csv;
-  registered_formatters[3] = &avtextformatter_flat;
-  registered_formatters[4] = &avtextformatter_ini;
-  registered_formatters[5] = &avtextformatter_json;
-  registered_formatters[6] = &avtextformatter_xml;
 }
 
 const AVTextFormatter *avtext_get_formatter_by_name(const char *name) {
