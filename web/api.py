@@ -1,9 +1,9 @@
 from enum import Enum
 import os
 
-import ffmpeg
 from models import Source, User, db, Sample, likes_table
 from sqlalchemy import func
+import ffmpeg
 
 class SampleSort(Enum):
     LATEST = 0

@@ -1,8 +1,8 @@
 import os
 
-import ffmpeg
 import shutil
 from sqlalchemy import create_engine, text
+import ffmpeg
 
 from constants import ALLOWED_UPLOAD_EXTENSIONS
 
