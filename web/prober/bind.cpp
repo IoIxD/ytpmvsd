@@ -1,52 +1,80 @@
 #include <Python.h>
 
 #include "bind.hpp"
-#include "prober.hpp"
+#include "methodobject.h"
+#include "object.h"
 
-char hellofunc_docs[] = "";
+static PyMethodDef Prober_methods[] = {
+    {"print_all", (PyCFunction)Prober_print_all, METH_VARARGS, ""},
+    {NULL} /* Sentinel */
+};
 
-PyMethodDef proberffi_funcs[] = {
-    {"print_all", (PyCFunction)print_all, METH_VARARGS, hellofunc_docs},
-    {NULL}};
+static PyTypeObject ProberType{
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0) //
+                   .tp_name = "proberffi.Prober",
+    .tp_basicsize = sizeof(ProberObject),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = PyDoc_STR("prober"),
+    .tp_new = Prober_new,
+    .tp_init = (initproc)Prober_init,
+    .tp_dealloc = (destructor)Prober_dealloc,
+    .tp_methods = Prober_methods,
+};
 
-char proberffimod_docs[] = "";
-
-PyModuleDef proberffi_mod = {PyModuleDef_HEAD_INIT,
-                             "proberffi",
-                             proberffimod_docs,
-                             -1,
-                             proberffi_funcs,
-                             NULL,
-                             NULL,
-                             NULL,
-                             NULL};
+static PyModuleDef probermodule = {
+    .m_base = PyModuleDef_HEAD_INIT,
+    .m_name = "proberffi",
+    .m_doc = "",
+    .m_size = -1,
+};
 
 PyMODINIT_FUNC PyInit_proberffi(void) {
-  return PyModule_Create(&proberffi_mod);
-}
+  PyObject *m;
+  if (PyType_Ready(&ProberType) < 0)
+    return NULL;
 
-PyObject *print_all(PyObject *self, PyObject *args) {
-  const char *input_filename;
+  m = PyModule_Create(&probermodule);
+  if (m == NULL)
+    return NULL;
 
-  if (!PyArg_ParseTuple(args, "s", &input_filename)) {
+  if (PyModule_AddObjectRef(m, "Prober", (PyObject *)&ProberType) < 0) {
+    Py_DECREF(m);
     return NULL;
   }
 
-  Prober *p = new Prober();
+  return m;
+}
+PyObject *Prober_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+  ProberObject *self;
+  self = (ProberObject *)type->tp_alloc(type, 0);
+  self->p = new Prober();
+  return (PyObject *)self;
+}
+void Prober_dealloc(ProberObject *t) { free(t->p); }
 
+PyObject *Prober_print_all(ProberObject *self, PyObject *args) {
   char *buf;
   char *f_name = NULL, *f_args = NULL;
   int ret, i;
 
-  if (!input_filename) {
+  if (!self->filename) {
     av_log(NULL, AV_LOG_ERROR, "You have to specify one input file.\n");
     ret = AVERROR(EINVAL);
-  } else if (input_filename) {
-    ret = p->probe_file(input_filename, p->print_input_filename);
+  } else if (self->filename) {
+    ret = self->p->probe_file(self->filename, self->p->print_input_filename);
     if (ret < 0 && 0) {
-      p->show_error(ret);
+      self->p->show_error(ret);
     }
   }
 
   return PyBool_FromLong(ret < 0);
+}
+
+int Prober_init(ProberObject *self, PyObject *args, PyObject *kwds) {
+  if (!PyArg_ParseTuple(args, "s", &self->filename)) {
+    return -1;
+  }
+
+  return 0;
 }

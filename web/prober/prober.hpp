@@ -1,7 +1,5 @@
 #pragma once
 
-/* section structure definition */
-
 #include <mutex>
 #include <string>
 extern "C" {
