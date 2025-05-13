@@ -25,7 +25,9 @@
 
 #include <mutex>
 
+// #include "cmdutils.hpp"
 #include "prober.hpp"
+#include "stream.hpp"
 
 const char *Prober::get_packet_side_data_type(const void *data) {
   const AVPacketSideData *sd = (const AVPacketSideData *)data;
@@ -2016,7 +2018,7 @@ int Prober::open_input_file(InputFile *ifile, const char *filename,
   }
   if ((err = avformat_open_input(&fmt_ctx, filename, iformat, &format_opts)) <
       0) {
-    print_error(filename, err);
+    av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, err);
     return err;
   }
   if (print_filename) {
@@ -2045,7 +2047,7 @@ int Prober::open_input_file(InputFile *ifile, const char *filename,
     av_freep(&opts);
 
     if (err < 0) {
-      print_error(filename, err);
+      av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, err);
       return err;
     }
   }
@@ -2220,28 +2222,6 @@ void Prober::ffprobe_show_pixel_formats(AVTextFormatContext *tfc) {
     avtext_print_section_footer(tfc);
   }
   avtext_print_section_footer(tfc);
-}
-
-int Prober::opt_show_optional_fields(void *optctx, const char *opt,
-                                     const char *arg) {
-  if (!av_strcasecmp(arg, "always"))
-    show_optional_fields = SHOW_OPTIONAL_FIELDS_ALWAYS;
-  else if (!av_strcasecmp(arg, "never"))
-    show_optional_fields = SHOW_OPTIONAL_FIELDS_NEVER;
-  else if (!av_strcasecmp(arg, "auto"))
-    show_optional_fields = SHOW_OPTIONAL_FIELDS_AUTO;
-
-  if (show_optional_fields == SHOW_OPTIONAL_FIELDS_AUTO &&
-      av_strcasecmp(arg, "auto")) {
-    double num;
-    int ret = parse_number("show_optional_fields", arg, OPT_TYPE_INT,
-                           SHOW_OPTIONAL_FIELDS_AUTO,
-                           SHOW_OPTIONAL_FIELDS_ALWAYS, &num);
-    if (ret < 0)
-      return ret;
-    show_optional_fields = num;
-  }
-  return 0;
 }
 
 int Prober::opt_format(void *optctx, const char *opt, const char *arg) {
@@ -2449,4 +2429,103 @@ int Prober::check_section_show_entries(int section_id) {
     if (check_section_show_entries(*id))
       return 1;
   return 0;
+}
+
+int Prober::filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
+                              AVFormatContext *s, AVStream *st,
+                              const AVCodec *codec, AVDictionary **dst,
+                              AVDictionary **opts_used) {
+  AVDictionary *ret = NULL;
+  const AVDictionaryEntry *t = NULL;
+  int flags =
+      s->oformat ? AV_OPT_FLAG_ENCODING_PARAM : AV_OPT_FLAG_DECODING_PARAM;
+  char prefix = 0;
+  const AVClass *cc = avcodec_get_class();
+
+  switch (st->codecpar->codec_type) {
+  case AVMEDIA_TYPE_VIDEO:
+    prefix = 'v';
+    flags |= AV_OPT_FLAG_VIDEO_PARAM;
+    break;
+  case AVMEDIA_TYPE_AUDIO:
+    prefix = 'a';
+    flags |= AV_OPT_FLAG_AUDIO_PARAM;
+    break;
+  case AVMEDIA_TYPE_SUBTITLE:
+    prefix = 's';
+    flags |= AV_OPT_FLAG_SUBTITLE_PARAM;
+    break;
+  default:
+    break;
+  }
+
+  while ((t = av_dict_iterate(opts, t))) {
+    const AVClass *priv_class;
+    char *p = strchr(t->key, ':');
+    int used = 0;
+
+    /* check stream specification in opt name */
+    if (p) {
+      int err = StreamSpecifier::check(s, st, p + 1);
+      if (err < 0) {
+        av_dict_free(&ret);
+        return err;
+      } else if (!err)
+        continue;
+
+      *p = 0;
+    }
+
+    if (av_opt_find(&cc, t->key, NULL, flags, AV_OPT_SEARCH_FAKE_OBJ) ||
+        !codec ||
+        ((priv_class = codec->priv_class) &&
+         av_opt_find(&priv_class, t->key, NULL, flags,
+                     AV_OPT_SEARCH_FAKE_OBJ))) {
+      av_dict_set(&ret, t->key, t->value, 0);
+      used = 1;
+    } else if (t->key[0] == prefix && av_opt_find(&cc, t->key + 1, NULL, flags,
+                                                  AV_OPT_SEARCH_FAKE_OBJ)) {
+      av_dict_set(&ret, t->key + 1, t->value, 0);
+      used = 1;
+    }
+
+    if (p)
+      *p = ':';
+
+    if (used && opts_used)
+      av_dict_set(opts_used, t->key, "", 0);
+  }
+
+  *dst = ret;
+  return 0;
+}
+
+int Prober::setup_find_stream_info_opts(AVFormatContext *s,
+                                        AVDictionary *local_codec_opts,
+                                        AVDictionary ***dst) {
+  int ret;
+  AVDictionary **opts;
+
+  *dst = NULL;
+
+  if (!s->nb_streams)
+    return 0;
+
+  opts = (AVDictionary **)av_calloc(s->nb_streams, sizeof(*opts));
+  if (!opts)
+    return AVERROR(ENOMEM);
+
+  for (int i = 0; i < s->nb_streams; i++) {
+    ret = filter_codec_opts(local_codec_opts, s->streams[i]->codecpar->codec_id,
+                            s, s->streams[i], NULL, &opts[i], NULL);
+    if (ret < 0)
+      goto fail;
+  }
+  *dst = opts;
+  return 0;
+fail:
+  for (int i = 0; i < s->nb_streams; i++)
+    av_dict_free(&opts[i]);
+  av_freep(&opts);
+  return ret;
 }

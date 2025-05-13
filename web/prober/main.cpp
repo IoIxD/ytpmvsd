@@ -1,24 +1,13 @@
 #include "prober.hpp"
 
 const char *input_filename;
-int opt_input_file(void *optctx, const char *arg) {
-  if (input_filename) {
-    av_log(NULL, AV_LOG_ERROR,
-           "Argument '%s' provided as input filename, but '%s' was already "
-           "specified.\n",
-           arg, input_filename);
-    return AVERROR(EINVAL);
-  }
-  if (!strcmp(arg, "-"))
-    arg = "fd:";
-  input_filename = av_strdup(arg);
-  if (!input_filename)
-    return AVERROR(ENOMEM);
-
-  return 0;
-}
 
 int main(int argc, char **argv) {
+  input_filename = av_strdup(argv[1]);
+  if (!input_filename) {
+    return AVERROR(ENOMEM);
+  }
+
   Prober *p = new Prober();
   const AVTextFormatter *f;
   AVTextFormatContext *tctx;
@@ -26,8 +15,6 @@ int main(int argc, char **argv) {
   char *buf;
   char *f_name = NULL, *f_args = NULL;
   int ret, i;
-
-  init_dynload();
 
   setvbuf(stderr, NULL, _IONBF, 0); /* win32 runtime needs this */
 
@@ -37,13 +24,6 @@ int main(int argc, char **argv) {
 #if CONFIG_AVDEVICE
   avdevice_register_all();
 #endif
-
-  // show_banner(argc, argv, options);
-  ret = parse_options(NULL, argc, argv, p->options, opt_input_file);
-  if (ret < 0) {
-    ret = (ret == AVERROR_EXIT) ? 0 : ret;
-    goto end;
-  }
 
   p->output_format = av_strdup("default");
   if (!p->output_format) {
@@ -94,7 +74,6 @@ end:
   av_freep(&p->print_input_filename);
   av_freep(&p->read_intervals);
 
-  uninit_opts();
   for (i = 0; i < FF_ARRAY_ELEMS(p->sections); i++)
     av_dict_free(&(p->sections[i].entries_to_show));
 

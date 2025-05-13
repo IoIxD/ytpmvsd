@@ -7,11 +7,9 @@ extern "C" {
 
 #include "config.h"
 #include "libavutil/pixfmt.h"
-#include "libavutil/rational.h"
 #include <libavutil/ffversion.h>
 
 #include "avtextformat.hpp"
-#include "cmdutils.hpp"
 #include <libavcodec/avcodec.h>
 #include <libavcodec/version.h>
 #include <libavdevice/avdevice.h>
@@ -168,6 +166,8 @@ typedef struct LogBuffer {
 
 class Prober {
 public:
+  AVDictionary *format_opts, *codec_opts;
+
   struct AVTextFormatSection sections[66] = {
       [SECTION_ID_CHAPTERS] = {SECTION_ID_CHAPTERS,
                                "chapters",
@@ -577,8 +577,6 @@ public:
   static const char *get_raw_string_type(const void *data);
   static const char *get_stream_group_type(const void *data);
 
-  const OptionDef *options;
-
   const char *print_input_filename;
   const AVInputFormat *iformat = NULL;
   const char *output_filename = NULL;
@@ -680,7 +678,6 @@ public:
   int probe_file(AVTextFormatContext *tfc, const char *filename,
                  const char *print_filename);
   void ffprobe_show_pixel_formats(AVTextFormatContext *tfc);
-  int opt_show_optional_fields(void *optctx, const char *opt, const char *arg);
 
   int opt_format(void *optctx, const char *opt, const char *arg);
   void mark_section_show_entries(SectionID section_id, int show_all_entries,
@@ -691,4 +688,11 @@ public:
   int parse_read_intervals(const char *intervals_spec);
   void print_section(SectionID id, int level);
   int check_section_show_entries(int section_id);
+
+  int filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
+                        AVFormatContext *s, AVStream *st, const AVCodec *codec,
+                        AVDictionary **dst, AVDictionary **opts_used);
+
+  int setup_find_stream_info_opts(AVFormatContext *s, AVDictionary *codec_opts,
+                                  AVDictionary ***dst);
 };
