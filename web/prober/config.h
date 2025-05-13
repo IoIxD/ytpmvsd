@@ -1,2 +1,0 @@
-#define HAVE_THREADS 1
-#define CONFIG_THIS_YEAR "2025"

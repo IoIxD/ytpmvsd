@@ -1,0 +1,4 @@
+CompileFlags:
+  Add:
+    - "-I/usr/include/python3.12"   
+    - "-I/usr/include/ffmpeg"
