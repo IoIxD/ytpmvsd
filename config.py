@@ -3,7 +3,6 @@ import toml
 settings = toml.load("config.toml")
 
 USER_APPROVAL = settings["user_approval"]
-VERSION = settings["version"]
 SECRET_KEY = settings["flask_secret_key"]
 SQLALCHEMY_DATABASE_URI = settings["database_url"]
 MB_UPLOAD_LIMIT = settings["mb_upload_limit"]

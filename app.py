@@ -21,7 +21,7 @@ from flask_migrate import Migrate
 from flask_moment import Moment
 from sqlalchemy import func
 
-from config import USER_APPROVAL, VERSION, SAMPLES_PER_PAGE
+from config import USER_APPROVAL, SAMPLES_PER_PAGE
 from models import db, Sample, User, Source
 from utils import err_sanitize, update_metadata
 
@@ -32,11 +32,14 @@ import api
 import samples
 import wiki
 import math
+import git
 
 app = Flask(__name__)
 app.config.from_pyfile("config.py")
 app.jinja_env.add_extension("jinja2.ext.loopcontrols")
-version = VERSION
+
+repo = git.Repo(".")
+commit_name = repo.tags[len(repo.tags)-1].name
 
 db.init_app(app)
 migrate = Migrate(app, db)
@@ -69,7 +72,7 @@ def home_page():
     recent_samples = api.get_recent_samples()
     top_samples = api.get_top_samples()
 
-    filepath = os.path.join("static/wiki/pages/changelogs", f"{version}.md")
+    filepath = os.path.join("static/wiki/pages/changelogs", f"{commit_name}.md")
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -86,7 +89,7 @@ def home_page():
         recent_samples=recent_samples,
         date=datetime.datetime.now(datetime.UTC),
         changelog=changelog if changelog else None,
-        version=version,
+        version=commit_name,
     )
 
 @app.route("/samples/<int:index>/")
