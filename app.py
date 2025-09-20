@@ -381,7 +381,14 @@ def upload():
 
         return redirect(url_for("batch_edit_samples", sample_ids=",".join(sample_ids)))
 
-    return render_template("upload.html", title="Upload - YTPMV Sample Database", user_approval=USER_APPROVAL.lower() == "true")
+    show_error = False
+    errorMessage = ""
+    if current_user is None:
+        errorMessage = "you gotta be logged in blud"
+    else if USER_APPROVAL and user_not_approved_idk:
+        errorMessage = "u gotta be approved"
+    
+    return render_template("upload.html", title="Upload - YTPMV Sample Database", error_message=errorMessage)
 
 @login_manager.user_loader
 def load_user(user_id):
