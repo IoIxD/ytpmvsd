@@ -6,7 +6,11 @@
         {% if unread_notifications_count > 0 %}
             ({{ unread_notifications_count }})
         {% endif %}
-        {{ title }}
+        {% if title %}
+            {{ title }} - YTPMV Sample Database
+        {% else %}
+            YTPMV Sample Database
+        {% endif %}
     </title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">

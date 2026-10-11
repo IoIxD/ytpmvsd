@@ -20,9 +20,7 @@ msgstr ""
 
 #: app.py:66 blueprints/main_routes.py:37 blueprints/main_routes.py:74
 #: blueprints/main_routes.py:78 blueprints/main_routes.py:285
-#: blueprints/main_routes.py:344
-msgid "title_default"
-msgstr "YTPMV Sample Database"
+
 
 #: app.py:71 samples.py:102
 msgid "upload_error_file_too_large"
@@ -115,7 +113,7 @@ msgstr "Sources"
 
 #: blueprints/main_routes.py:360
 msgid "title_tags"
-msgstr "Tags - YTPMV Sample Database"
+msgstr "Tags"
 
 #: blueprints/main_routes.py:371
 msgid "error_bad_request"
@@ -177,7 +175,7 @@ msgstr "Unauthorized"
 
 #: blueprints/main_routes.py:513
 msgid "title_notifications"
-msgstr "Notifications - YTPMV Sample Database"
+msgstr "Notifications"
 
 #: templates/404.html:6
 msgid "error_page_not_found"

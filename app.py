@@ -1,27 +1,22 @@
-from flask import (
-    Flask,
-    render_template,
-    jsonify,
-    g,
-    request
-)
+import datetime
+
+from flask import Flask, g, jsonify, render_template, request
+from flask_babel import Babel
+from flask_babel import gettext as _
 from flask_login import (
     LoginManager,
     current_user,
 )
 from flask_migrate import Migrate
 from flask_moment import Moment
-from flask_babel import Babel, gettext as _
 
-from config import VERSION
-from models import db, User, Notification
-from mail import mail
-import datetime
-
+from blueprints.admin_routes import admin_bp
+from blueprints.api_routes import api_bp
 from blueprints.main_routes import main_bp
 from blueprints.wiki_routes import wiki_bp
-from blueprints.api_routes import api_bp
-from blueprints.admin_routes import admin_bp
+from config import VERSION
+from mail import mail
+from models import Notification, User, db
 
 app = Flask(__name__)
 app.config.from_pyfile("config.py")
@@ -39,21 +34,29 @@ app.register_blueprint(api_bp)
 app.register_blueprint(admin_bp)
 
 login_manager = LoginManager(app)
-login_manager.login_view = (
-    "main.login"
-)
+login_manager.login_view = "main.login"
+
 
 def get_locale():
     # todo: actual site setting to change this
-    return request.accept_languages.best_match(['en'])
+    return request.accept_languages.best_match(["en"])
 
-babel = Babel(app, locale_selector=get_locale, default_locale="en", default_translation_directories="lang")
+
+babel = Babel(
+    app,
+    locale_selector=get_locale,
+    default_locale="en",
+    default_translation_directories="lang",
+)
+
 
 @app.context_processor
 def inject_global_data():
     unread_notifications_count = 0
     if current_user.is_authenticated:
-        unread_notifications_count = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
+        unread_notifications_count = Notification.query.filter_by(
+            user_id=current_user.id, is_read=False
+        ).count()
     return {
         "current_user": current_user,
         "date": datetime.datetime.now(datetime.UTC),
@@ -63,12 +66,14 @@ def inject_global_data():
 
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template("404.html", title="YTPMV Sample Database")
+    return render_template("404.html")
 
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
-    return jsonify({"error": _("upload_error_file_too_large", mb_upload_limit=MB_UPLOAD_LIMIT)}), 400
+    return jsonify(
+        {"error": _("upload_error_file_too_large", mb_upload_limit=MB_UPLOAD_LIMIT)}
+    ), 400
 
 
 @login_manager.user_loader

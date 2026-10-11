@@ -1,21 +1,39 @@
 import datetime
+import math
 import os
 import re
-import math
+
 import markdown
-from flask import Blueprint, render_template, request, redirect, session, url_for, jsonify, flash, send_file
-from flask_login import login_required, current_user, login_user, logout_user
+from flask import (
+    Blueprint,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 from flask_babel import gettext as _
+from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func
 
-from config import REQUIRE_USER_APPROVAL, MB_UPLOAD_LIMIT, VERSION, SAMPLES_PER_PAGE, USE_EMAIL_VERIFICATION
-from models import db, Sample, User, Source, Notification
-from utils import update_metadata
-from mail import generate_id, send_verification_email, confirm_token, decode_email
 import api
 import samples
+from config import (
+    MB_UPLOAD_LIMIT,
+    REQUIRE_USER_APPROVAL,
+    SAMPLES_PER_PAGE,
+    USE_EMAIL_VERIFICATION,
+    VERSION,
+)
+from mail import confirm_token, decode_email, generate_id, send_verification_email
+from models import Notification, Sample, Source, User, db
+from utils import update_metadata
 
 main_bp = Blueprint("main", __name__)
+
 
 @main_bp.route("/")
 def home_page():
@@ -34,12 +52,12 @@ def home_page():
 
     return render_template(
         "home.html",
-        title="YTPMV Sample Database",
         top_samples=top_samples,
         recent_samples=recent_samples,
         changelog=changelog if changelog else None,
         version=VERSION,
     )
+
 
 @main_bp.route("/samples/<int:index>/")
 def samples_list(index):
@@ -56,26 +74,30 @@ def samples_list(index):
 
     return render_template(
         "samples.html",
-        title=_("title_samples") + " - YTPMV Sample Database",
+        title=_("title_samples"),
         samples=res_samples,
         index=index,
-        page_num = int(math.ceil(api.get_samples_len() / SAMPLES_PER_PAGE))
+        page_num=int(math.ceil(api.get_samples_len() / SAMPLES_PER_PAGE)),
     )
+
 
 @main_bp.route("/samples/")
 def samples_list_base():
     return samples_list(1)
+
 
 @main_bp.route("/sample/<int:sample_id>/")
 def sample_page(sample_id):
     sample = api.get_sample_info(sample_id)
 
     if sample is None:
-        return render_template("404.html", title="YTPMV Sample Database")
+        return render_template("404.html")
 
     if not sample.is_public:
-        if not current_user.is_authenticated or (not current_user.is_admin and current_user.id != sample.uploader):
-            return render_template("404.html", title="YTPMV Sample Database")
+        if not current_user.is_authenticated or (
+            not current_user.is_admin and current_user.id != sample.uploader
+        ):
+            return render_template("404.html")
 
     uploader = api.get_user_info(sample.uploader)
 
@@ -86,11 +108,12 @@ def sample_page(sample_id):
 
     return render_template(
         "sample.html",
-        title=f"{sample.filename} - YTPMV Sample Database",
+        title=f"{sample.filename}",
         sample=sample,
         uploader=uploader,
         metadata=metadata,
     )
+
 
 @main_bp.route("/sample/edit/<sample_id>/", methods=["GET", "POST"])
 @login_required
@@ -134,7 +157,7 @@ def edit_sample(sample_id):
     if request.method == "POST":
         filename = request.form.get("filename")
         source_id = request.form.get("source_id")
-        tags = request.form.get('tags', '').split(' ')
+        tags = request.form.get("tags", "").split(" ")
         reencode = request.form.get("reencode") if is_initial_upload else False
 
         filename = re.sub(r"[^\w\s]", "", filename)
@@ -144,11 +167,7 @@ def edit_sample(sample_id):
             source_id = None
 
         edit_status = samples.edit_sample(
-            sample_id,
-            filename,
-            source_id,
-            tags,
-            reencode
+            sample_id, filename, source_id, tags, reencode
         )
 
         session.pop(f"uploaded_sample_id_{sample_id}", None)
@@ -174,13 +193,13 @@ def edit_sample(sample_id):
         thumbnail=thumbnail,
         filename_no_extension=os.path.splitext(old_filename)[0],
         force_reencode=force_reencode,
-
         # relevant for post-upload edits only
         is_initial_upload=is_initial_upload,
         tags=tags,
         source_id=source_id,
-        source_name=source_name
+        source_name=source_name,
     )
+
 
 @main_bp.route("/sample/batch-edit/<sample_ids>/", methods=["GET", "POST"])
 @login_required
@@ -229,7 +248,9 @@ def batch_edit_samples(sample_ids):
             filename = sample_item["filename"]
             sample_id = sample_item["sample_id"]
 
-            edit_status = samples.edit_sample(sample_id, filename, source_id, [], reencode)
+            edit_status = samples.edit_sample(
+                sample_id, filename, source_id, [], reencode
+            )
 
             session.pop(f"uploaded_sample_id_{sample_id}", None)
             session.pop(f"filename_{sample_id}", None)
@@ -248,6 +269,7 @@ def batch_edit_samples(sample_ids):
         samples=sample_data,
         force_reencode=force_reencode,
     )
+
 
 # TODO: This could be added as an api call, but first an oauth system needs to be implemented so that we don't rely on flask.
 @main_bp.route("/sample/like/<int:sample_id>/", methods=["POST"])
@@ -268,23 +290,30 @@ def like_sample(sample_id):
     db.session.commit()
     return jsonify(success=True, likes=len(sample.likes), liked=liked)
 
+
 @main_bp.route("/sample/delete/<int:sample_id>/", methods=["POST"])
 @login_required
 def delete_sample(sample_id):
     sample = Sample.query.get(sample_id)
-    if not current_user or (not current_user.is_admin and sample.uploader != current_user.id):
+    if not current_user or (
+        not current_user.is_admin and sample.uploader != current_user.id
+    ):
         return jsonify({"message": _("error_access_denied")}), 403
 
     return samples.delete_sample(sample_id)
+
 
 @main_bp.route("/sample/<int:sample_id>/download/")
 def download_sample(sample_id):
     sample = Sample.query.get_or_404(sample_id)
     if not sample.is_public:
-        if not current_user.is_authenticated or (not current_user.is_admin and current_user.id != sample.uploader):
-            return render_template("404.html", title="YTPMV Sample Database"), 404
+        if not current_user.is_authenticated or (
+            not current_user.is_admin and current_user.id != sample.uploader
+        ):
+            return render_template("404.html"), 404
     file_path = os.path.join("static/media/samps", sample.stored_as)
     return send_file(file_path, as_attachment=True, download_name=sample.filename)
+
 
 @main_bp.route("/user/<int:user_id>/")
 def user_page(user_id):
@@ -292,7 +321,7 @@ def user_page(user_id):
     res_samples = api.get_user_samples(
         user_id,
         viewer_id=current_user.id if current_user.is_authenticated else None,
-        is_admin=current_user.is_authenticated and current_user.is_admin
+        is_admin=current_user.is_authenticated and current_user.is_admin,
     )
 
     samples = []
@@ -305,33 +334,36 @@ def user_page(user_id):
 
     return render_template(
         "user.html",
-        title=f"{user.username} - YTPMV Sample Database",
+        title=f"{user.username}",
         samples=samples,
         samples_under_review=private_samples,
         user=user,
     )
 
+
 @main_bp.route("/sources/")
 def all_sources():
     sources = Source.query.order_by(Source.name.asc()).all()
 
-    return render_template(
-        "sources.html", title=_("title_sources") + " - YTPMV Sample Database", sources=sources
-    )
+    return render_template("sources.html", title=_("title_sources"), sources=sources)
+
 
 @main_bp.route("/source/<int:source_id>/")
 def source_page(source_id):
     source = api.get_source_info(source_id)
     res_samples = (
-        Sample.query.filter_by(source=source, is_public=True).order_by(Sample.upload_date.desc()).all()
+        Sample.query.filter_by(source=source, is_public=True)
+        .order_by(Sample.upload_date.desc())
+        .all()
     )
 
     return render_template(
         "source.html",
-        title=f"{source.name} - YTPMV Sample Database",
+        title=f"{source.name}",
         samples=res_samples,
         source=source,
     )
+
 
 @main_bp.route("/search")
 def search_results():
@@ -341,9 +373,9 @@ def search_results():
 
     return render_template(
         "search.html",
-        title="YTPMV Sample Database",
         samples=results,
     )
+
 
 @main_bp.route("/tags/")
 def tags_list():
@@ -361,6 +393,7 @@ def tags_list():
         categories=categories,
         tags=grouped_tags,
     )
+
 
 @main_bp.route("/upload/", methods=["GET", "POST"])
 def upload():
@@ -380,7 +413,9 @@ def upload():
 
         for file in files:
             try:
-                (sample_id, original_filename, timestamp, stored_as, force_reencode) = samples.upload(file)
+                (sample_id, original_filename, timestamp, stored_as, force_reencode) = (
+                    samples.upload(file)
+                )
                 sample_ids.append(sample_id)
                 session[f"uploaded_sample_id_{sample_id}"] = sample_id
                 session[f"filename_{sample_id}"] = original_filename
@@ -393,7 +428,13 @@ def upload():
 
         return jsonify({"sample_id": sample_ids[0]})
 
-    return render_template("upload.html", title=_("upload") + "- YTPMV Sample Database", require_user_approval=REQUIRE_USER_APPROVAL, mb_upload_limit=MB_UPLOAD_LIMIT)
+    return render_template(
+        "upload.html",
+        title=_("upload"),
+        require_user_approval=REQUIRE_USER_APPROVAL,
+        mb_upload_limit=MB_UPLOAD_LIMIT,
+    )
+
 
 @main_bp.route("/login/", methods=["GET", "POST"])
 def login():
@@ -415,10 +456,12 @@ def login():
 
     return render_template("login.html")
 
+
 @main_bp.route("/logout/", methods=["GET", "POST"])
 def logout():
     logout_user()
     return redirect(url_for("main.home_page"))
+
 
 @main_bp.route("/register/", methods=["GET", "POST"])
 def register():
@@ -439,7 +482,11 @@ def register():
             flash(_("register_error_username_too_long"), "error")
             return redirect(url_for("main.register"))
 
-        user = User(username=username, email=email, join_date=datetime.datetime.now(datetime.UTC))
+        user = User(
+            username=username,
+            email=email,
+            join_date=datetime.datetime.now(datetime.UTC),
+        )
         user.set_password(password)
 
         if not USE_EMAIL_VERIFICATION:
@@ -450,7 +497,9 @@ def register():
 
         if USE_EMAIL_VERIFICATION:
             (token, verifier) = generate_id(email)
-            verify_url = url_for("main.verify", _external=True) + "?verifier=" + verifier
+            verify_url = (
+                url_for("main.verify", _external=True) + "?verifier=" + verifier
+            )
             send_verification_email(email, verify_url, token)
 
             flash(_("register_success_check_email"), "success")
@@ -460,6 +509,7 @@ def register():
         return redirect(url_for("main.login"))
 
     return render_template("register.html")
+
 
 @main_bp.route("/verify/", methods=["GET", "POST"])
 def verify():
@@ -487,11 +537,13 @@ def verify():
                     on_confirm_screen = False
                 else:
                     return redirect(url_for("main.home_page"))
-    return render_template("email/verify.html",
+    return render_template(
+        "email/verify.html",
         msg=msg,
         on_confirm_screen=on_confirm_screen,
-        verifier=verifier
+        verifier=verifier,
     )
+
 
 @main_bp.route("/notifications/read/<int:notification_id>/", methods=["POST"])
 @login_required
@@ -506,8 +558,15 @@ def mark_notification_read(notification_id):
 
     return jsonify({"success": True})
 
+
 @main_bp.route("/notifications/")
 @login_required
 def notifications():
-    notifs = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.timestamp.desc()).all()
-    return render_template("notifications.html", title=_("title_notifications"), notifications=notifs)
+    notifs = (
+        Notification.query.filter_by(user_id=current_user.id)
+        .order_by(Notification.timestamp.desc())
+        .all()
+    )
+    return render_template(
+        "notifications.html", title=_("title_notifications"), notifications=notifs
+    )
