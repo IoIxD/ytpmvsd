@@ -213,10 +213,6 @@ msgstr ""
 msgid "search_label"
 msgstr ""
 
-#: templates/base.html:59
-msgid "search_placeholder"
-msgstr ""
-
 #: templates/base.html:60
 msgid "search_button"
 msgstr ""

@@ -224,10 +224,6 @@ msgstr "Login"
 msgid "search_label"
 msgstr "Search"
 
-#: templates/base.html:59
-msgid "search_placeholder"
-msgstr "crossfade anime"
-
 #: templates/base.html:60
 msgid "search_button"
 msgstr "Search"
@@ -235,8 +231,6 @@ msgstr "Search"
 #: templates/base.html:86
 msgid "footer_privacy_policy"
 msgstr "Privacy Policy"
-
-
 
 #: templates/batch_edit_samples.html:7 templates/edit_sample.html:7
 msgid "edit_popup_reencoding"
