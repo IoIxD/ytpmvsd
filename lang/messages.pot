@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-09 23:53-0700\n"
+"POT-Creation-Date: 2026-10-10 20:55-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -315,8 +315,6 @@ msgstr ""
 msgid "home_top_samples"
 msgstr ""
 
-#: templates/home.html:23 templates/home.html:41 templates/samples.html:34
-
 #: templates/home.html:35
 msgid "home_recent_samples"
 msgstr ""
@@ -520,3 +518,4 @@ msgstr ""
 #: templates/email/verify.html:14
 msgid "verify_back_home_button"
 msgstr ""
+

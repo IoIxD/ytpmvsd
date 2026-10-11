@@ -55,7 +55,7 @@
                     document.querySelectorAll('.upload-date').forEach(element => {
                         const utcDate = element.getAttribute('data-utc');
                         const localTime = moment.utc(utcDate).local();
-                        element.innerText = {{ _("sample_uploaded_relative", time="{time}")|tojson }}.replace("{time}", localTime.fromNow());
+                        element.innerText = {{ _("sample_uploaded_relative") | tojson }} + localTime.fromNow();
                     });
                 </script>
             </div>
