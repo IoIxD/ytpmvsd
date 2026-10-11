@@ -78,10 +78,10 @@
                                     const popup = document.querySelector('.popup');
                                     const errormessage = document.createElement('p');
                                     const resp = JSON.parse(xhr.responseText);
-                                    errormessage.innerHTML = {{ _("upload_error_message", error=resp.error) }};
+                                    errormessage.innerHTML = {{ _("upload_error_message", error="{error}")|tojson }}.replace("{error}", resp.error);
                                     errormessage.style.color = "red";
                                     const returnbutton = document.createElement('button');
-                                    returnbutton.innerHTML = {{ _("upload_return_button") }};
+                                    returnbutton.innerHTML = {{ _("upload_return_button")|tojson }};
                                     returnbutton.onclick = () => window.location.href = "/upload/"
                                     popup.appendChild(errormessage);
                                     popup.appendChild(returnbutton);
@@ -112,10 +112,10 @@
                     if (files.length > 10) {
                         const popup = document.querySelector('.popup');
                         const errormessage = document.createElement('p');
-                        errormessage.innerHTML = {{ _("upload_error_max_files") }};
+                        errormessage.innerHTML = {{ _("upload_error_max_files")|tojson }};
                         errormessage.style.color = "red";
                         const returnbutton = document.createElement('button');
-                        returnbutton.innerHTML = {{ _("upload_return_button") }};
+                        returnbutton.innerHTML = {{ _("upload_return_button")|tojson }};
                         returnbutton.onclick = () => window.location.href = "/upload/"
                         popup.appendChild(errormessage);
                         popup.appendChild(returnbutton);

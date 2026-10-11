@@ -386,7 +386,7 @@ msgid "sample_uploaded_by"
 msgstr ""
 
 #: templates/sample.html:58
-msgid "sample_uploaded_text"
+msgid "sample_uploaded_relative"
 msgstr ""
 
 #: templates/sample.html:66

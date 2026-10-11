@@ -55,7 +55,7 @@
                     document.querySelectorAll('.upload-date').forEach(element => {
                         const utcDate = element.getAttribute('data-utc');
                         const localTime = moment.utc(utcDate).local();
-                        element.innerText = {{ _("sample_uploaded_text" }} + localTime.fromNow();
+                        element.innerText = {{ _("sample_uploaded_relative", time="{time}")|tojson }}.replace("{time}", localTime.fromNow());
                     });
                 </script>
             </div>
@@ -126,13 +126,13 @@
                             .then(data => {
                                 if (data.success) {
                                     likeCountSpan.textContent = data["likes"];
-                                    this.querySelector("span").textContent = data["liked"] ? {{ _("sample_unlike") }} : {{ _("sample_like") }};  // Change text
+                                    this.querySelector("span").textContent = data["liked"] ? {{ _("sample_unlike")|tojson }} : {{ _("sample_like")|tojson }};  // Change text
                                 } else {
                                     window.alert(data.message);
                                 }
                             });
                     {% else %}
-                        window.alert({{ _("sample_like_error_not_logged_in") }});
+                        window.alert({{ _("sample_like_error_not_logged_in")|tojson }});
                     {% endif %}
                 });
             });
