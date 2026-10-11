@@ -524,7 +524,3 @@ msgstr ""
 #: templates/email/verify.html:14
 msgid "verify_back_home_button"
 msgstr ""
-
-#: templates/wiki/wiki_home.html:5
-msgid "wiki_home_placeholder"
-msgstr ""
