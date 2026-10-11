@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>
         {% if unread_notifications_count > 0 %}
-            ({{ unread_notifications_count }})
+            (­{{ unread_notifications_count }}­)
         {% endif %}
         {% if title %}
             {{ title }} - YTPMV Sample Database
@@ -50,7 +50,7 @@
         •
         {% if current_user.is_authenticated %}
             <li>
-                <a href="{{ url_for("main.notifications") }}">{{ _("nav_notifications") }}{% if unread_notifications_count > 0 %} ({{ unread_notifications_count }}){% endif %}</a>
+                <a href="{{ url_for("main.notifications") }}">{{ _("nav_notifications") }}{% if unread_notifications_count > 0 %} (­{{ unread_notifications_count }}­){% endif %}</a>
             </li>
             •
             <li><a href="{{ url_for("main.logout") }}">{{ _("nav_logout") }}</a></li>
