@@ -327,10 +327,6 @@ msgid "home_top_samples"
 msgstr "Top Samples"
 
 #: templates/home.html:23 templates/home.html:41 templates/samples.html:34
-#: templates/search.html:15 templates/source.html:15 templates/user.html:16
-#: templates/user.html:36
-msgid "image_alt_sample_thumbnail"
-msgstr "sample"
 
 #: templates/home.html:35
 msgid "home_recent_samples"
