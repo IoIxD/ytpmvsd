@@ -1,13 +1,10 @@
 import os
-
-import markdown
 from flask import render_template
-from flask_babel import gettext as _
+import markdown
 
 
 def wiki_main():
     return render_template("wiki/wiki_home.html")
-
 
 def wiki_page(page):
     filepath = os.path.join("static/wiki/pages", f"{page}.md")
