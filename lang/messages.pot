@@ -65,10 +65,6 @@ msgstr ""
 msgid "delete_error_not_found"
 msgstr ""
 
-#: wiki.py:21
-msgid "title_wiki_page"
-msgstr ""
-
 #: blueprints/admin_routes.py:13 blueprints/main_routes.py:276
 msgid "error_access_denied"
 msgstr ""
@@ -536,4 +532,3 @@ msgstr ""
 #: templates/wiki/wiki_home.html:5
 msgid "wiki_home_placeholder"
 msgstr ""
-

@@ -72,9 +72,6 @@ msgstr "Sample deleted successfully."
 msgid "delete_error_not_found"
 msgstr "Tried to delete a sample that doesn't exist."
 
-#: wiki.py:21
-msgid "title_wiki_page"
-msgstr "%(name)s - YTPMVSD Wiki"
 
 #: blueprints/admin_routes.py:13 blueprints/main_routes.py:276
 msgid "error_access_denied"
@@ -83,7 +80,6 @@ msgstr "Access denied"
 #: blueprints/main_routes.py:59
 msgid "title_samples"
 msgstr "Samples"
-
 
 #: blueprints/main_routes.py:120
 msgid "edit_error_no_permission"
@@ -546,4 +542,3 @@ msgstr "Back to home page"
 #: templates/wiki/wiki_home.html:5
 msgid "wiki_home_placeholder"
 msgstr "You shouldn't be here yet :)"
-
