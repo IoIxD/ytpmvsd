@@ -392,6 +392,18 @@ msgstr "Note"
 msgid "sample_private_notice"
 msgstr "This sample is private and only visible to you. It will be made public once it has been reviewed by a moderator."
 
+#: templates/sample.html:26
+msgid "sample_tags_header"
+msgstr "Tags"
+
+#: templates/sample.html:52
+msgid "sample_uploaded_by"
+msgstr "Uploaded by"
+
+#: templates/sample.html:58
+msgid "sample_uploaded_text"
+msgstr "Uploaded"
+
 #: templates/sample.html:66
 msgid "sample_download"
 msgstr "Download sample"

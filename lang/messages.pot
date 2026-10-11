@@ -390,7 +390,7 @@ msgid "sample_uploaded_by"
 msgstr ""
 
 #: templates/sample.html:58
-msgid "sample_uploaded_relative"
+msgid "sample_uploaded_text"
 msgstr ""
 
 #: templates/sample.html:66
